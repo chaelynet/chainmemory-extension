@@ -1,0 +1,331 @@
+/* ============================================================
+   ChainMemory content styles v2.1.0
+   - Original "Save" button + toasts (unchanged)
+   - New: floating "Inject memory" button + preview panel
+   ============================================================ */
+
+/* -------- Save button (v2.0.x, unchanged) -------- */
+.cm-save-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 12px !important;
+  margin: 8px 4px !important;
+  background: linear-gradient(135deg, #7F77DD, #534AB7) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  opacity: 0.7;
+  transition: all 0.2s !important;
+  z-index: 9999 !important;
+  box-shadow: 0 2px 8px rgba(127, 119, 221, 0.2) !important;
+}
+
+.cm-save-btn:hover {
+  opacity: 1 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(127, 119, 221, 0.4) !important;
+}
+
+.cm-save-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+.cm-save-btn.cm-saved {
+  background: linear-gradient(135deg, #1D9E75, #0F6348) !important;
+}
+
+.cm-save-btn svg {
+  flex-shrink: 0 !important;
+}
+
+/* -------- Toast (v2.0.x, unchanged) -------- */
+.cm-toast {
+  position: fixed !important;
+  bottom: 24px !important;
+  right: 24px !important;
+  padding: 14px 20px !important;
+  background: #0d0d18 !important;
+  color: #e8e8f0 !important;
+  border: 1px solid #1f1f2a !important;
+  border-radius: 10px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  z-index: 999999 !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+  animation: cm-toast-in 0.3s ease-out !important;
+  max-width: 360px !important;
+  line-height: 1.5 !important;
+}
+
+.cm-toast-success {
+  border-color: rgba(29, 158, 117, 0.3) !important;
+  color: #5DCAA5 !important;
+}
+
+.cm-toast-error {
+  border-color: rgba(226, 75, 74, 0.3) !important;
+  color: #F09595 !important;
+}
+
+.cm-toast-warn {
+  border-color: rgba(239, 159, 39, 0.3) !important;
+  color: #FAC775 !important;
+}
+
+@keyframes cm-toast-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.cm-toast-out {
+  animation: cm-toast-out 0.3s ease-in forwards !important;
+}
+
+@keyframes cm-toast-out {
+  to { transform: translateY(20px); opacity: 0; }
+}
+
+/* ============================================================
+   NEW IN v2.1.0 — Inject context flow
+   ============================================================ */
+
+/* Floating "Inject memory" button — bottom left, fixed */
+.cm-inject-fab {
+  position: fixed !important;
+  bottom: 24px !important;
+  left: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 10px 16px !important;
+  background: linear-gradient(135deg, #7F77DD, #534AB7) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  z-index: 999998 !important;
+  box-shadow: 0 4px 20px rgba(127, 119, 221, 0.4) !important;
+  transition: all 0.2s !important;
+  opacity: 0.92 !important;
+}
+
+.cm-inject-fab:hover {
+  opacity: 1 !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 28px rgba(127, 119, 221, 0.55) !important;
+}
+
+.cm-inject-fab:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+.cm-inject-fab svg {
+  flex-shrink: 0 !important;
+}
+
+/* Preview panel — centered bottom, above the FAB */
+.cm-preview-panel {
+  position: fixed !important;
+  bottom: 80px !important;
+  left: 24px !important;
+  width: 420px !important;
+  max-width: calc(100vw - 48px) !important;
+  max-height: 70vh !important;
+  background: #06060e !important;
+  color: #e8e8f0 !important;
+  border: 1px solid #2a2a35 !important;
+  border-radius: 12px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-size: 12px !important;
+  z-index: 999999 !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  animation: cm-pp-in 0.25s ease-out !important;
+}
+
+@keyframes cm-pp-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.cm-pp-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 14px 16px !important;
+  border-bottom: 1px solid #1f1f2a !important;
+  flex-shrink: 0 !important;
+}
+
+.cm-pp-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  color: #AFA9EC !important;
+}
+
+.cm-pp-title svg {
+  flex-shrink: 0 !important;
+}
+
+.cm-pp-close {
+  background: transparent !important;
+  border: none !important;
+  color: #8a8a9a !important;
+  font-size: 22px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 0 4px !important;
+  font-family: inherit !important;
+}
+
+.cm-pp-close:hover {
+  color: #e8e8f0 !important;
+}
+
+.cm-pp-summary {
+  padding: 12px 16px !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  color: #d0d0e0 !important;
+  border-bottom: 1px solid #1f1f2a !important;
+}
+
+.cm-pp-verified {
+  display: inline-block !important;
+  margin-left: 6px !important;
+  padding: 2px 8px !important;
+  background: rgba(29, 158, 117, 0.12) !important;
+  border: 1px solid rgba(29, 158, 117, 0.3) !important;
+  border-radius: 999px !important;
+  color: #5DCAA5 !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+}
+
+.cm-pp-stats {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+  padding: 10px 16px !important;
+  font-size: 11px !important;
+  color: #8a8a9a !important;
+  border-bottom: 1px solid #1f1f2a !important;
+}
+
+.cm-pp-stats strong {
+  color: #AFA9EC !important;
+  font-weight: 600 !important;
+}
+
+.cm-pp-list {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  padding: 8px 16px !important;
+}
+
+.cm-pp-mem {
+  padding: 8px 0 !important;
+  border-bottom: 1px solid #14141e !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  color: #c0c0d0 !important;
+}
+
+.cm-pp-mem:last-child {
+  border-bottom: none !important;
+}
+
+.cm-pp-mark {
+  display: inline-block !important;
+  width: 14px !important;
+  color: #5DCAA5 !important;
+  font-weight: 700 !important;
+}
+
+.cm-pp-plat {
+  color: #AFA9EC !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+.cm-pp-actions {
+  display: flex !important;
+  gap: 8px !important;
+  padding: 12px 16px !important;
+  border-top: 1px solid #1f1f2a !important;
+  flex-shrink: 0 !important;
+}
+
+.cm-pp-cancel,
+.cm-pp-inject {
+  flex: 1 !important;
+  padding: 10px !important;
+  border-radius: 8px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
+  border: none !important;
+}
+
+.cm-pp-cancel {
+  background: transparent !important;
+  border: 1px solid #2a2a35 !important;
+  color: #e8e8f0 !important;
+}
+
+.cm-pp-cancel:hover {
+  background: rgba(127, 119, 221, 0.08) !important;
+}
+
+.cm-pp-inject {
+  background: linear-gradient(135deg, #7F77DD, #534AB7) !important;
+  color: #fff !important;
+}
+
+.cm-pp-inject:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 14px rgba(127, 119, 221, 0.4) !important;
+}
+
+.cm-pp-foot {
+  padding: 8px 16px 12px !important;
+  font-size: 10px !important;
+  color: #5a5a70 !important;
+  text-align: center !important;
+  line-height: 1.4 !important;
+  flex-shrink: 0 !important;
+}
+
+/* Mobile / narrow viewport */
+@media (max-width: 520px) {
+  .cm-preview-panel {
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    bottom: 72px !important;
+  }
+  .cm-inject-fab {
+    bottom: 16px !important;
+    left: 16px !important;
+  }
+}

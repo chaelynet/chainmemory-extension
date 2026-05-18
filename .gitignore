@@ -1,0 +1,36 @@
+# Local environment
+.env
+.env.*
+*.env
+secrets.json
+api-keys.json
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+*.bak
+*.bak-*
+*.backup
+*.backup-*
+
+# Node (in case the project later adds tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Build / pack outputs
+dist/
+build/
+*.zip
+*.crx
+*.pem
+
+# Logs
+*.log
+logs/
