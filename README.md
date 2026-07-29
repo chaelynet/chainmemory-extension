@@ -4,16 +4,35 @@ Browser extension for [ChainMemory](https://chainmemory.ai) — save and recall 
 
 ## What it does
 
-- **Save**: a "Save to ChainMemory" button appears on every AI response. One click writes the conversation to the ChainMemory blockchain permanently.
-- **Inject** (new in v2.1.0): a floating "Inject memory" button on every supported AI page pulls your verified memory from ChainMemory and pastes it into the chat input, giving the AI continuity with what you discussed on other platforms.
-- **Verify**: every saved memory eventually gets cryptographically anchored on-chain. Verified memories are marked and link to a public verification page.
+- **Save**: a "Save to ChainMemory" button appears on AI responses. One click writes the response to ChainMemory, where it is encrypted and anchored on the ChainMemory blockchain.
+- **Inject**: a floating "Inject memory" button opens a panel where you pick which memories to send into the current chat, giving the AI continuity with what you discussed on other platforms and other models.
+- **Inject project state**: if you keep a Project Brain, one click injects its consolidated state — vision, phase, current focus, decisions in force, open risks and priorities — together with its on-chain anchor.
+- **Verify**: every memory is anchored on-chain with its own `event_hash`. Anyone can verify a memory was not altered, without your API key and without seeing its content.
 
 ## Supported platforms
 
 - ChatGPT (`chatgpt.com`, `chat.openai.com`)
 - Claude (`claude.ai`)
 - Gemini (`gemini.google.com`)
-- Perplexity (`www.perplexity.ai`)
+- Perplexity (`www.perplexity.ai`, `perplexity.ai`)
+
+## Costs — read this before using inject
+
+ChainMemory charges protocol fees in AIC, the native token of its chain. The extension performs two operations that cost:
+
+| Action | Cost |
+|---|---|
+| Save a response | **0.001 AIC** |
+| Inject memories into a chat | **0.1 AIC** per injection, regardless of how many memories |
+| Inject project state | free |
+| Reading, filtering, tagging, archiving | free |
+
+Half of every fee is burned, half goes to the ecosystem treasury. Claim free AIC at [faucet.chainmemory.ai](https://faucet.chainmemory.ai).
+
+## Current limits
+
+- **Saved responses are stored up to 1,500 characters.** Longer responses are cut at that point. The reason is that the encrypted content is written on-chain, where every byte is permanent and costs gas. This limit is under review.
+- **Project state injection is capped at 7,000 characters**, so it fits inside the input box of every supported platform. Only current items are sent — superseded decisions and closed risks stay in the Brain and are not injected.
 
 ## Installation (unpacked, for development)
 
@@ -27,26 +46,31 @@ Browser extension for [ChainMemory](https://chainmemory.ai) — save and recall 
 4. Click **Load unpacked** and select this folder
 5. Click the ChainMemory icon in the toolbar to set up your API key
 
+The published version is available on the Chrome Web Store.
+
 ## Configuration
 
 When you first open the popup, you have two options:
 
-- **Generate API key automatically**: creates a new wallet on the ChainMemory blockchain. Save the key in a password manager — there is no recovery.
+- **Generate API key automatically**: creates a new wallet on the ChainMemory blockchain. Save the key in a password manager — **there is no recovery**.
 - **I already have a key**: paste an existing `aic_...` key (e.g. from another browser).
 
-After setup, claim free AIC tokens at [faucet.chainmemory.ai](https://faucet.chainmemory.ai) so you can write to the blockchain.
+After setup, claim free AIC at [faucet.chainmemory.ai](https://faucet.chainmemory.ai) so you can save and inject.
 
-## How memory injection works
+### Project Brain
 
-1. Click the floating **"Inject memory"** button (bottom-left on any supported AI page).
-2. The extension calls `GET https://api.chainmemory.ai/v1/memory/context` with your API key.
-3. A preview panel opens showing your summary, recent memories, and verification status.
-4. Click **Inject into prompt** to paste the formatted context at the top of the chat input.
-5. If the platform's input cannot be detected (rare — happens when the platform changes its HTML), the context is copied to your clipboard as a fallback.
+In **Settings → Project Brain**, set the name of your project. There is no default: if you leave it empty, the "Inject project state" button will tell you to set one. The project must already exist in your ChainMemory account.
 
-You can tune what gets injected from the popup:
-- **Memories per injection**: 5, 10, 20, or 50 (default 10)
-- **Verified only**: include only memories anchored on the blockchain
+Note that the Project Brain is **built** through the MCP server or the API, not from the extension. The extension can read and inject a project state; it cannot consolidate one.
+
+## How injection works
+
+1. Click the floating **"Inject memory"** button on any supported AI page.
+2. The panel lists your memories, filterable by project, with an estimated token count each.
+3. Select the ones you want and click **Inject**.
+4. The text is inserted at the top of the chat input. If the platform's input cannot be detected — rare, happens when a platform changes its HTML — the text is copied to your clipboard instead.
+
+The injection is optimistic: the text arrives immediately and the on-chain payment confirms in the background.
 
 ## File structure
 
@@ -54,18 +78,24 @@ You can tune what gets injected from the popup:
 chainmemory-extension/
 ├── manifest.json          # Chrome MV3 manifest
 ├── background.js          # Service worker (opens faucet on install)
-├── content.js             # Save buttons + floating Inject button
-├── content.css            # Brand-styled UI
+├── content.js             # Save buttons, floating FAB, inject panel, project state
+├── content.css            # In-page UI styles
 ├── popup.html             # Extension popup UI
-├── popup.js               # Popup logic (setup, history, settings)
+├── popup.js               # Popup logic (onboarding, memories, projects, settings)
+├── popup.css              # Popup styles
 └── icons/                 # 16/48/128 px brand icons
 ```
 
 ## Version history
 
-- **2.1.0** (May 2026) — adds `Inject memory` floating button and panel preview, supports user-configurable injection limit and verified-only filter.
+- **3.1.2** (July 2026) — manifest description now declares the AIC wallet, required by the Chrome Web Store; memory addressing migrated to per-key numbering.
+- **3.1.1** — rejected by the Chrome Web Store and never published. Its changes are included in 3.1.2: compact project-state injection with a hard character cap (fixes "over the limit" on Perplexity), no default project name, and a fix for text duplication in React-based editors.
+- **3.1.0** (July 2026) — project state injection, memory re-tagging and archiving from the popup, project management, per-platform save button strategies.
+- **2.1.0** (May 2026) — floating "Inject memory" button and preview panel.
 - **2.0.x** — chain migration to ID 202604, native AIC support, Save flow on 4 platforms.
 - **1.0.x** — initial release: Save to ChainMemory on Claude.
+
+> Releases 3.1.0 and 3.1.2 were published to the Chrome Web Store before being committed here. This repository was brought up to date in July 2026; the commits for those versions were created from their released sources.
 
 ## Related projects
 
@@ -75,16 +105,25 @@ chainmemory-extension/
 
 ## Privacy
 
-- Your API key is stored in `chrome.storage.sync` (encrypted and synced across your Chrome instances).
-- The extension only communicates with `api.chainmemory.ai`.
+- Your API key is stored in `chrome.storage.sync`, which Chrome syncs across the browsers signed into your Google account. It is not stored by ChainMemory in your browser beyond that.
+- Memory content is encrypted before being written on-chain. The chain stores ciphertext and a hash; the plaintext is never public.
+- The extension talks to `api.chainmemory.ai`, and opens `faucet.chainmemory.ai` in a tab when you claim AIC.
 - No analytics, no telemetry, no ads.
+
+## Permissions, and why
+
+| Permission | Why |
+|---|---|
+| `storage` | keep your API key and settings |
+| `clipboardWrite` | fallback when a platform's input box cannot be detected |
+| host access to the 4 AI platforms | inject the Save button and the memory panel into the page |
+| host access to `chainmemory.ai`, `api.chainmemory.ai`, `faucet.chainmemory.ai` | talk to the API and open the faucet |
 
 ## Links
 
 - Website: https://chainmemory.ai
 - Faucet: https://faucet.chainmemory.ai
 - API docs: https://api.chainmemory.ai/llms.txt
-- Explorer: https://chainmemory.ai
 
 ## License
 
