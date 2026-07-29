@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.0.9 — content.js
+// ChainMemory v3.1.2 — content.js
 // Features:
 //   1. Save to ChainMemory button on each AI response (from v2.1.0)
 //   2. Retrospective scan of old messages (NEW)
@@ -8,6 +8,10 @@
 //   5. Optimistic payment (instant text injection)
 //   6. "Top up AIC" button when balance < 0.001
 //   7. Multi-language selectors (Perplexity contenteditable, etc.)
+//   8. COMPACT project state inject: only current decisions/open risks,
+//      char budget cap — fixes Perplexity "over the limit" (v3.1.1)
+//   9. Project Brain has NO default project — each user sets their own
+//      (v3.1.1: prevents leaking the internal 'chainmemory' namespace)
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -90,7 +94,7 @@
     selectedIds: new Set(),
     balance: 0n,
     aiName: null,
-    projectBrainProject: 'chainmemory'
+    projectBrainProject: ''
   };
 
   let _platform = null;
@@ -117,7 +121,7 @@
         _state.wallet = data.walletAddress || null;
         _state.filterProject = data.filterProject || '';
         _state.aiName = data.aiName || null;
-        _state.projectBrainProject = data.projectBrainProject || 'chainmemory';
+        _state.projectBrainProject = data.projectBrainProject || '';
         resolve();
       });
     });
@@ -191,14 +195,19 @@
       range.collapse(true);
       sel.removeAllRanges();
       sel.addRange(range);
+      let inserted = false;
       try {
-        document.execCommand('insertText', false, text);
-      } catch (e) {
+        inserted = document.execCommand('insertText', false, text);
+      } catch (e) { inserted = false; }
+      if (!inserted) {
+        // Fallback manual: insertar nodo + notificar al framework con UN solo evento.
+        // (Con execCommand exitoso el evento 'input' ya se dispara nativamente;
+        //  dispararlo de nuevo duplicaba el texto en editores React como Perplexity.)
         const tn = document.createTextNode(text);
         if (el.firstChild) el.insertBefore(tn, el.firstChild);
         else el.appendChild(tn);
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
       }
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
       return true;
     }
     return false;
@@ -584,7 +593,7 @@
   function renderMemRow(mem) {
     const div = document.createElement('div');
     div.className = 'cm-pp-mem-row';
-    div.dataset.id = mem.id;
+    div.dataset.id = mem.memory_number;
     const text = mem.summary || mem.summary_preview || '(empty)';
     const dt = new Date(mem.timestamp * 1000);
     const dateStr = dt.toLocaleDateString();
@@ -594,7 +603,7 @@
       <input type="checkbox" class="cm-pp-mem-check">
       <div class="cm-pp-mem-body">
         <div class="cm-pp-mem-meta">
-          <span class="cm-pp-mem-id">#${mem.memory_number || mem.id}</span>
+          <span class="cm-pp-mem-id">#${mem.memory_number}</span>
           <span class="cm-pp-plat">[${escapeHtml(mem.category || 'CUSTOM')}]</span>
           <span class="cm-pp-mem-date">${dateStr}</span>
           <span class="cm-pp-mem-tokens">~${mem.estimated_tokens || 0} tokens</span>
@@ -606,14 +615,14 @@
     `;
 
     const cb = div.querySelector('.cm-pp-mem-check');
-    cb.addEventListener('click', e => { e.stopPropagation(); toggleSelect(mem.id); });
+    cb.addEventListener('click', e => { e.stopPropagation(); toggleSelect(mem.memory_number); });
     div.addEventListener('click', e => {
       if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-      toggleSelect(mem.id);
+      toggleSelect(mem.memory_number);
     });
     div.querySelector('.cm-pp-archive-btn').addEventListener('click', async e => {
       e.stopPropagation();
-      await toggleArchive(mem.id, !!mem.archived);
+      await toggleArchive(mem.memory_number, !!mem.archived);
     });
     return div;
   }
@@ -631,7 +640,7 @@
   }
 
   function selectAllToggle(check) {
-    if (check) _state.memories.forEach(m => _state.selectedIds.add(m.id));
+    if (check) _state.memories.forEach(m => _state.selectedIds.add(m.memory_number));
     else _state.selectedIds.clear();
     document.querySelectorAll('.cm-pp-mem-row').forEach(row => {
       const id = parseInt(row.dataset.id);
@@ -664,7 +673,7 @@
 
     let totalTokens = 0;
     _state.memories.forEach(m => {
-      if (_state.selectedIds.has(m.id)) totalTokens += m.estimated_tokens || 0;
+      if (_state.selectedIds.has(m.memory_number)) totalTokens += m.estimated_tokens || 0;
     });
     info.textContent = count === 0 ? '0 selected' : `${count} selected · ~${totalTokens} tokens`;
 
@@ -755,11 +764,19 @@
     return header + body + '\n\n---\n\n';
   }
 
-  // ── Project Brain: format + inject consolidated state ──
+  // ── Project Brain: format + inject consolidated state (COMPACT, v3.1.1) ──
+  // Regla de diseno: el inject manual de la extension responde
+  // "donde esta el proyecto HOY y hacia donde va", nunca "como llegamos aca".
+  // La historia completa (superseded, riesgos cerrados, milestones, metrics)
+  // sigue integra en el Brain y viaja por el camino MCP/API automatico.
+  const MAX_INJECT_CHARS = 7000;  // tope duro: entra en Perplexity free con margen
+  const MAX_VOCAB_TERMS = 8;      // vocabulario esencial
+  const MAX_VOCAB_DEF_CHARS = 90; // definiciones truncadas
+
   function formatProjectState(s, name) {
     const st = s.state || s;   // los campos del estado viven en s.state; fallback defensivo
     const lines = ['[ChainMemory · Project State: ' + (s.project || name) + (s.version != null ? ' v' + s.version : '') + ']', ''];
-    // --- meta-info block (anchor / updated / evidence) ---
+    // --- meta-info block (anchor / updated) ---
     if (s.anchor && s.anchor.status === 'anchored') {
       const blk = s.anchor.block_number != null ? ' (block ' + s.anchor.block_number + ')' : '';
       const tx = s.anchor.tx_hash ? ', tx ' + s.anchor.tx_hash.slice(0, 10) + '…' + s.anchor.tx_hash.slice(-8) : '';
@@ -783,58 +800,86 @@
         lines.push('Updated: ' + ymd + ' (' + rel + ')');
       }
     }
-    const evidenceIds = new Set();
-    ['decisions','open_risks','next_priorities','milestones','assumptions','open_questions','priorities'].forEach(k => {
-      const arr = st[k];
-      if (!Array.isArray(arr)) return;
-      arr.forEach(item => {
-        if (item && Array.isArray(item.memory_ids)) item.memory_ids.forEach(id => evidenceIds.add(id));
-        if (item && Array.isArray(item.evidence)) item.evidence.forEach(id => evidenceIds.add(id));
-      });
-    });
-    if (evidenceIds.size > 0) lines.push('Evidence: ' + evidenceIds.size + ' memories');
     if (lines.length > 2) lines.push('');   // separador meta -> cuerpo, solo si hubo meta
-    // --- cuerpo del estado ---
+    // --- cuerpo del estado: solo lo VIGENTE ---
+    if (st.vision && st.vision.statement) lines.push('Vision: ' + st.vision.statement, '');
     if (st.phase) lines.push('Phase: ' + st.phase);
     if (st.current_focus) lines.push('Current focus: ' + st.current_focus);
+    // Vocabulario esencial: max terminos, definiciones cortas
     if (st.vocabulary && Object.keys(st.vocabulary).length) {
-      lines.push('', 'Vocabulary:');
-      for (const k in st.vocabulary) lines.push('- ' + k + ': ' + st.vocabulary[k]);
+      const keys = Object.keys(st.vocabulary);
+      lines.push('', 'Vocabulary (key terms):');
+      keys.slice(0, MAX_VOCAB_TERMS).forEach(k => {
+        let def = String(st.vocabulary[k]);
+        if (def.length > MAX_VOCAB_DEF_CHARS) def = def.slice(0, MAX_VOCAB_DEF_CHARS - 1) + '…';
+        lines.push('- ' + k + ': ' + def);
+      });
+      if (keys.length > MAX_VOCAB_TERMS) lines.push('  (+' + (keys.length - MAX_VOCAB_TERMS) + ' more terms in Brain)');
     }
     if (Array.isArray(st.constraints) && st.constraints.length) {
       lines.push('', 'Constraints:');
       st.constraints.forEach(c => lines.push('- ' + (typeof c === 'object' ? (c.statement || JSON.stringify(c)) : c)));
     }
+    // Decisiones: solo vigentes (sin superseded), titulo solo — sin statement largo ni evidence IDs
     if (Array.isArray(st.decisions) && st.decisions.length) {
-      lines.push('', 'Decisions:');
-      st.decisions.filter(d => d && d.status !== 'superseded').forEach(d => {
-        const ev = '';
-        lines.push('- [' + (d.status || '?') + '] ' + (d.title || '') + (d.statement ? ' — ' + d.statement : '') + ev);
-      });
+      const current = st.decisions.filter(d => d && d.status !== 'superseded');
+      const omitted = st.decisions.length - current.length;
+      if (current.length) {
+        lines.push('', 'Decisions (current):');
+        current.forEach(d => {
+          lines.push('- [' + (d.status || '?') + '] ' + (d.title || ''));
+        });
+        if (omitted > 0) lines.push('  (+' + omitted + ' superseded omitted — full history in Brain/MCP)');
+      }
     }
-    if (Array.isArray(st.open_risks) && st.open_risks.length) {
-      lines.push('', 'Open risks:');
-      st.open_risks.filter(r => r && r.status !== 'closed').forEach(r => {
-        const ev = '';
-        lines.push('- [' + (r.severity || '?') + '] ' + (r.title || '') + (r.status ? ' → ' + r.status : '') + ev);
-      });
+    // Riesgos: solo abiertos. Schema v2 usa 'risks'; fallback a 'open_risks' (schema v1)
+    const risksArr = Array.isArray(st.risks) ? st.risks : (Array.isArray(st.open_risks) ? st.open_risks : []);
+    if (risksArr.length) {
+      const open = risksArr.filter(r => r && r.status !== 'closed' && r.status !== 'resolved' && r.status !== 'mitigated');
+      if (open.length) {
+        lines.push('', 'Open risks:');
+        open.forEach(r => {
+          lines.push('- [' + (r.severity || '?') + '] ' + (r.title || ''));
+        });
+      }
     }
-    if (Array.isArray(st.next_priorities) && st.next_priorities.length) {
-      lines.push('', 'Next priorities:');
-      st.next_priorities.forEach(p => lines.push('- ' + p));
+    // Prioridades: solo activas, ordenadas por score desc. Schema v2 usa 'priorities'; fallback a 'next_priorities'
+    const priosArr = Array.isArray(st.priorities) ? st.priorities : (Array.isArray(st.next_priorities) ? st.next_priorities : []);
+    if (priosArr.length) {
+      const prioScore = p => (p && (p.priority_score != null ? p.priority_score : p.score)) || 0;
+      const active = priosArr
+        .filter(p => !p || typeof p !== 'object' ? true : (p.status !== 'done' && p.status !== 'cancelled'))
+        .sort((a, b) => prioScore(b) - prioScore(a));
+      if (active.length) {
+        lines.push('', 'Next priorities (by score):');
+        active.forEach(p => {
+          if (p && typeof p === 'object') {
+            const sc = p.priority_score != null ? p.priority_score : (p.score != null ? p.score : '?');
+            lines.push('- [' + sc + '] ' + (p.title || p.statement || ''));
+          } else {
+            lines.push('- ' + p);
+          }
+        });
+      }
     }
-    if (s.state_hash) lines.push('', '(state_hash: ' + s.state_hash.slice(0, 10) + '\u2026' + s.state_hash.slice(-8) + ')');
+    // Hash abreviado: identifica la version anclada sin gastar 66 chars
+    if (s.state_hash) lines.push('', '(state_hash: ' + s.state_hash.slice(0, 10) + '…' + s.state_hash.slice(-8) + ')');
     lines.push('', '---', '');
     let out = lines.join('\n');
-    const MAX_INJECT_CHARS = 7000;
+    // Tope de seguridad: nunca mas fallar por limite del sitio destino
     if (out.length > MAX_INJECT_CHARS) {
-      out = out.slice(0, MAX_INJECT_CHARS - 30) + '\n\u2026[context trimmed]\n---\n';
+      out = out.slice(0, MAX_INJECT_CHARS - 30) + '\n…[context trimmed]\n---\n';
     }
     return out;
   }
 
   async function handleInjectProjectState(btn) {
-    const projectName = _state.projectBrainProject || 'chainmemory';
+    const projectName = _state.projectBrainProject || '';
+    if (!projectName) {
+      toast('Set your project first (extension icon → Settings → Project Brain)', 'warn');
+      chrome.runtime.sendMessage({ action: 'openPopup' });
+      return;
+    }
     const orig = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Loading…';
@@ -843,7 +888,7 @@
       const text = formatProjectState(data, projectName);
       const okInj = injectIntoInput(text);
       if (okInj) {
-        toast('✓ Project state "' + projectName + '" injected', 'success');
+        toast('✓ Project state "' + projectName + '" injected (' + text.length + ' chars)', 'success');
         closePanel();
       } else {
         await navigator.clipboard.writeText(text);
@@ -890,7 +935,7 @@
     // Retrospective scan after page loads + observe for new
     setTimeout(() => {
       runScan();
-      console.log(`[ChainMemory v3.0.9] save-button mode on ${_platform.name}: ${_platform.singleButtonAtEnd ? 'single-at-end' : 'per-response'}`);
+      console.log(`[ChainMemory v3.1.2] save-button mode on ${_platform.name}: ${_platform.singleButtonAtEnd ? 'single-at-end' : 'per-response'}`);
       startObserver();
     }, 1500);
 
@@ -905,7 +950,7 @@
       }
     });
 
-    console.log('[ChainMemory v3.0.9] loaded on', _platform.name);
+    console.log('[ChainMemory v3.1.2] loaded on', _platform.name);
   }
 
   if (document.readyState === 'loading') {

@@ -1,4 +1,4 @@
-// ChainMemory v3.0.5 — background service worker
+// ChainMemory v3.1.2 — background service worker
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {

@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.0.9 — popup.js
+// ChainMemory v3.1.2 — popup.js
 // Complete onboarding (auto-generate + manual paste) + tabs
+// v3.1.1: Project Brain has NO hardcoded default — user sets their own
+//         (prevents leaking the internal 'chainmemory' namespace)
 // ═══════════════════════════════════════════════════════════════════
 
 const API_BASE = 'https://api.chainmemory.ai';
@@ -13,7 +15,7 @@ const state = {
   templates: [],
   filterProject: '',
   editingProject: null,
-  projectBrainProject: 'chainmemory'
+  projectBrainProject: ''
 };
 
 // ── API ──
@@ -34,7 +36,7 @@ function loadConfig() {
       if (data.apiKey) state.apiKey = data.apiKey;
       if (data.walletAddress) state.wallet = data.walletAddress;
       if (data.filterProject) state.filterProject = data.filterProject;
-      state.projectBrainProject = data.projectBrainProject || 'chainmemory';
+      state.projectBrainProject = data.projectBrainProject || '';
       resolve();
     });
   });
@@ -247,8 +249,8 @@ function populateBulkDropdown() {
 function renderMemCard(mem) {
   const div = document.createElement('div');
   div.className = 'cm-mem-card';
-  if (state.selectedMemIds.has(mem.id)) div.classList.add('selected');
-  div.dataset.id = mem.id;
+  if (state.selectedMemIds.has(mem.memory_number)) div.classList.add('selected');
+  div.dataset.id = mem.memory_number;
 
   const text = mem.summary || mem.summary_preview || '(empty)';
   const dt = new Date(mem.timestamp * 1000);
@@ -261,8 +263,8 @@ function renderMemCard(mem) {
 
   div.innerHTML = `
     <div class="cm-mem-card-head">
-      <input type="checkbox" class="cm-mem-check" ${state.selectedMemIds.has(mem.id) ? 'checked' : ''}>
-      <span class="cm-mem-id">#${mem.memory_number || mem.id}</span>
+      <input type="checkbox" class="cm-mem-check" ${state.selectedMemIds.has(mem.memory_number) ? 'checked' : ''}>
+      <span class="cm-mem-id">#${mem.memory_number}</span>
       <span class="cm-mem-cat-pill">${escapeHtml(mem.category || 'CUSTOM')}</span>
       <span class="cm-mem-date">${dateStr}</span>
       <button class="cm-mem-archive-btn" title="${mem.archived ? 'Unarchive' : 'Archive'}">${mem.archived ? '↩' : '📦'}</button>
@@ -270,7 +272,7 @@ function renderMemCard(mem) {
     <div class="cm-mem-preview">${escapeHtml(text.substring(0, 120))}${text.length > 120 ? '…' : ''}</div>
     <div class="cm-mem-tags-row">
       ${tagsHTML}
-      <select class="cm-mem-add-tag-select" data-id="${mem.id}">
+      <select class="cm-mem-add-tag-select" data-id="${mem.memory_number}">
         <option value="">+ tag</option>
         ${state.projects.filter(p => !tags.includes(p.project_id)).map(p => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(p.name)}</option>`).join('')}
       </select>
@@ -281,18 +283,18 @@ function renderMemCard(mem) {
   const cb = div.querySelector('.cm-mem-check');
   cb.addEventListener('click', e => {
     e.stopPropagation();
-    toggleSelectMem(mem.id);
+    toggleSelectMem(mem.memory_number);
   });
   // Click row
   div.addEventListener('click', e => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    toggleSelectMem(mem.id);
+    toggleSelectMem(mem.memory_number);
   });
   // Remove tag
   div.querySelectorAll('.cm-tag-remove').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      removeTagFromMemory(mem.id, btn.dataset.tag);
+      removeTagFromMemory(mem.memory_number, btn.dataset.tag);
     });
   });
   // Add tag dropdown
@@ -300,14 +302,14 @@ function renderMemCard(mem) {
   sel.addEventListener('change', async e => {
     const newTag = e.target.value;
     if (!newTag) return;
-    await addTagToMemory(mem.id, newTag);
+    await addTagToMemory(mem.memory_number, newTag);
     e.target.value = '';
   });
   // Archive / unarchive
   const arch = div.querySelector('.cm-mem-archive-btn');
   if (arch) arch.addEventListener('click', async e => {
     e.stopPropagation();
-    await toggleArchiveMem(mem.id, !!mem.archived);
+    await toggleArchiveMem(mem.memory_number, !!mem.archived);
   });
 
   return div;
@@ -356,7 +358,7 @@ function hideBulkBar() {
 
 async function addTagToMemory(memId, newTag) {
   try {
-    const mem = state.allMemories.find(m => m.id === memId);
+    const mem = state.allMemories.find(m => m.memory_number === memId);
     if (!mem) return;
     const currentTags = mem.tags || [];
     if (currentTags.includes(newTag)) {
@@ -375,7 +377,7 @@ async function addTagToMemory(memId, newTag) {
 
 async function removeTagFromMemory(memId, tag) {
   try {
-    const mem = state.allMemories.find(m => m.id === memId);
+    const mem = state.allMemories.find(m => m.memory_number === memId);
     if (!mem) return;
     const newTags = (mem.tags || []).filter(t => t !== tag);
     await api('PUT', `/v1/memories/${memId}/tags`, { tags: newTags });
@@ -399,7 +401,7 @@ async function applyBulkTag() {
 
   for (const id of ids) {
     try {
-      const mem = state.allMemories.find(m => m.id === id);
+      const mem = state.allMemories.find(m => m.memory_number === id);
       if (!mem) continue;
       const currentTags = mem.tags || [];
       if (currentTags.includes(tag)) { success++; continue; }
@@ -454,7 +456,7 @@ function initTabs() {
 // ── Settings ──
 async function loadSettings() {
   const pbInput = document.getElementById('pb-project');
-  if (pbInput) pbInput.value = state.projectBrainProject || 'chainmemory';
+  if (pbInput) pbInput.value = state.projectBrainProject || '';
   document.getElementById('conn-wallet').textContent = state.wallet || '--';
   document.getElementById('conn-apikey').textContent =
     state.apiKey ? state.apiKey.substring(0, 12) + '...' + state.apiKey.substring(state.apiKey.length - 4) : '--';
@@ -753,10 +755,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const bulkApply = document.getElementById('bulk-apply');
   if (bulkApply) bulkApply.addEventListener('click', applyBulkTag);
 
-  // settings
+  // settings — Project Brain: guardar el nombre tal cual (vacio = sin proyecto)
   const pbInput = document.getElementById('pb-project');
   if (pbInput) pbInput.addEventListener('change', e => {
-    const v = (e.target.value || '').trim() || 'chainmemory';
+    const v = (e.target.value || '').trim();
     state.projectBrainProject = v;
     saveConfigSync({ projectBrainProject: v });
   });
