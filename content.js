@@ -1,17 +1,28 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.1.2 — content.js
+// ChainMemory v3.1.3 — content.js
 // Features:
 //   1. Save to ChainMemory button on each AI response (from v2.1.0)
 //   2. Retrospective scan of old messages (NEW)
 //   3. Floating FAB "+ Inject memory"
 //   4. Preview panel with selective inject
 //   5. Optimistic payment (instant text injection)
-//   6. "Top up AIC" button when balance < 0.001
+//   6. "Top up AIC" button when balance is below the inject fee
 //   7. Multi-language selectors (Perplexity contenteditable, etc.)
 //   8. COMPACT project state inject: only current decisions/open risks,
 //      char budget cap — fixes Perplexity "over the limit" (v3.1.1)
 //   9. Project Brain has NO default project — each user sets their own
 //      (v3.1.1: prevents leaking the internal 'chainmemory' namespace)
+//
+// v3.1.3:
+//  10. NO character limit on save. The 1.500-char cut was silently
+//      truncating 26% of stored memories; now the whole response is saved.
+//  11. Cost shown on the button BEFORE saving, and confirmed after.
+//  12. Technical ceiling of 20.000 chars, derived from the chain's block
+//      gas limit — the extension warns instead of cutting or failing.
+//  13. Inject fee corrected to 0.1 AIC (was reporting 0.001, 100x less
+//      than what the server actually charged since 2026-06-30).
+//  14. Panel opens with its three API calls in parallel, not in series.
+//  15. Response scanning is O(n) instead of O(n²) on long chats.
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -19,7 +30,33 @@
 
   const API_BASE = 'https://api.chainmemory.ai';
   const FAUCET_URL = 'https://faucet.chainmemory.ai';
-  const MIN_BALANCE_WEI = 1000000000000000n; // 0.001 AIC
+
+  // ── Costos (v3.1.3) ────────────────────────────────────────────────
+  // Fee Schedule v1.0: inject 0.1 AIC, write 0.001 AIC. Hasta v3.1.2 el
+  // guardia de saldo usaba 0.001 para inject — 100 veces menos de lo real —
+  // asi que el boton "Top up AIC" aparecia tarde y el usuario recibia un 402.
+  const INJECT_FEE_AIC = 0.1;
+  const MIN_INJECT_BALANCE_WEI = 100000000000000000n; // 0.1 AIC
+  const WRITE_FEE_AIC = 0.001;
+
+  // Costo de gas al escribir en cadena, MEDIDO sobre una transaccion real
+  // (memoria #536: 3.632 caracteres -> 2.863.818 gas a 1 gwei = 0.00286 AIC).
+  // El contenido cifrado se guarda on-chain, asi que el gas escala con el largo.
+  const GAS_AIC_PER_1000_CHARS = 0.0008;
+
+  // Techo tecnico, NO comercial: el gas limit del bloque es 30.000.000 y a la
+  // tasa medida una sola transaccion lo consumiria entero cerca de los 38.000
+  // caracteres. 20.000 deja la escritura por debajo de la mitad de un bloque.
+  // No se trunca al superarlo: se avisa. Truncar en silencio fue el problema
+  // de las versiones anteriores (el 26% de las memorias quedo cortado).
+  const MAX_SAVE_CHARS = 20000;
+
+  function estimateSaveCostAIC(chars) {
+    return WRITE_FEE_AIC + (chars / 1000) * GAS_AIC_PER_1000_CHARS;
+  }
+  function fmtAIC(n) {
+    return n < 0.01 ? n.toFixed(4) : n.toFixed(3);
+  }
 
   // ── Platform configs ──
   const PLATFORMS = {
@@ -219,16 +256,16 @@
 
   function findAIResponses() {
     if (!_platform) return [];
-    const responses = [];
+    // v3.1.3: antes era `responses.includes(el)` sobre un array creciente — O(n²).
+    // En un chat largo (200 respuestas) son ~20.000 comparaciones, y el observer
+    // lo repite cada 400 ms mientras el modelo escribe. Un Set lo hace O(n).
+    const seen = new Set();
     for (const sel of _platform.responseSelectors) {
       try {
-        const found = document.querySelectorAll(sel);
-        found.forEach(el => {
-          if (!responses.includes(el)) responses.push(el);
-        });
+        document.querySelectorAll(sel).forEach(el => seen.add(el));
       } catch (e) {}
     }
-    return responses;
+    return Array.from(seen);
   }
 
   function extractResponseText(el) {
@@ -250,12 +287,37 @@
       <span>Save to ChainMemory</span>
     `;
     btn.title = 'Save this response to your ChainMemory blockchain';
+    // v3.1.3: el costo se muestra ANTES de guardar. La respuesta sigue creciendo
+    // mientras el modelo escribe, asi que se recalcula al pasar el mouse — que es
+    // el momento inmediatamente anterior al clic.
+    btn.addEventListener('mouseenter', () => refreshSaveBtnCost(btn, responseEl));
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
       await handleSaveClick(btn, responseEl);
     });
     responseEl.appendChild(btn);
+  }
+
+  // Muestra largo y costo estimado en el propio boton, sin bloquear ni pedir
+  // confirmacion extra: informar no deberia costar un clic mas.
+  function refreshSaveBtnCost(btn, responseEl) {
+    if (!btn || btn.disabled || btn.classList.contains('cm-saved')) return;
+    const chars = extractResponseText(responseEl).length;
+    if (!chars) return;
+    const label = btn.querySelector('span');
+    if (!label) return;
+    if (chars > MAX_SAVE_CHARS) {
+      label.textContent = `Too long: ${chars.toLocaleString()} chars`;
+      btn.title = `This response is ${chars.toLocaleString()} characters. A single on-chain transaction holds about ${MAX_SAVE_CHARS.toLocaleString()}. Save a shorter selection, or split it.`;
+      // Estilo inline a proposito: no se toca content.css en esta version, asi el
+      // diff queda acotado a la logica. Si el estado se queda, va a una clase.
+      btn.style.opacity = '0.55';
+      return;
+    }
+    btn.style.opacity = '';
+    label.textContent = `Save · ${fmtAIC(estimateSaveCostAIC(chars))} AIC`;
+    btn.title = `Save ${chars.toLocaleString()} characters to ChainMemory. Estimated cost ${fmtAIC(estimateSaveCostAIC(chars))} AIC: ${WRITE_FEE_AIC} protocol fee plus on-chain storage, which grows with length.`;
   }
 
   async function handleSaveClick(btn, responseEl) {
@@ -267,6 +329,11 @@
     const text = extractResponseText(responseEl);
     if (!text || text.length < 10) {
       toast('Response too short', 'warn');
+      return;
+    }
+    // v3.1.3: el unico limite es el que impone la cadena. Se avisa, no se corta.
+    if (text.length > MAX_SAVE_CHARS) {
+      toast(`Too long to store in one transaction: ${text.length.toLocaleString()} characters (limit ~${MAX_SAVE_CHARS.toLocaleString()}). Save a shorter selection instead of losing the rest.`, 'warn');
       return;
     }
 
@@ -293,7 +360,11 @@
         }
       }
 
-      const summary = `[${_platform.name}] ${text.substring(0, 1500)}`;
+      // v3.1.3: se elimina el corte a 1.500 caracteres. Truncaba el 26% de las
+      // memorias en silencio: el usuario veia "Saved" y perdia el resto sin
+      // enterarse. El costo real de guardar completo son centavos de AIC y se
+      // muestra en el boton antes del clic.
+      const summary = `[${_platform.name}] ${text}`;
       const result = await api('POST', '/v1/memory', {
         summary,
         category: 'INTERACTION',
@@ -319,7 +390,7 @@
         </svg>
         <span>Saved #${result.memory_number ?? result.memory_id}</span>
       `;
-      toast(`✓ Saved to ChainMemory #${result.memory_number ?? result.memory_id}`, 'success');
+      toast(`✓ Saved #${result.memory_number ?? result.memory_id} · ${text.length.toLocaleString()} characters · ~${fmtAIC(estimateSaveCostAIC(text.length))} AIC`, 'success');
     } catch (e) {
       btn.disabled = false;
       btn.innerHTML = orig;
@@ -352,6 +423,8 @@
       <span>Save to ChainMemory</span>
     `;
     btn.title = 'Save the latest response to your ChainMemory blockchain';
+    // v3.1.3: mismo aviso de costo que en el boton por-respuesta.
+    btn.addEventListener('mouseenter', () => refreshSaveBtnCost(btn, _saveBtnResponse));
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -519,9 +592,15 @@
     panel.querySelector('.cm-pp-archived-toggle').addEventListener('change', loadMemoriesIntoPanel);
     panel.querySelector('.cm-pp-select-all').addEventListener('change', e => selectAllToggle(e.target.checked));
 
-    await loadProjectsIntoFilter(panel);
-    await loadBalanceIntoPanel(panel);
-    await loadMemoriesIntoPanel();
+    // v3.1.3: las tres llamadas son independientes entre si y estaban en serie,
+    // asi que el usuario esperaba la SUMA en vez de la mas lenta. Con el fix del
+    // servidor (memories/list bajo de 3.53s a 0.21s) la apertura pasa de ~3.7s a
+    // ~0.2s en vez de ~0.4s. allSettled: si una falla, las otras igual pintan.
+    await Promise.allSettled([
+      loadProjectsIntoFilter(panel),
+      loadBalanceIntoPanel(panel),
+      loadMemoriesIntoPanel()
+    ]);
   }
 
   async function loadProjectsIntoFilter(panel) {
@@ -545,7 +624,7 @@
       _state.balance = BigInt(bal.balance_wei);
       const balDisplay = panel.querySelector('.cm-pp-bal-value');
       balDisplay.textContent = parseFloat(bal.balance_aic).toFixed(4) + ' AIC';
-      if (_state.balance < MIN_BALANCE_WEI) {
+      if (_state.balance < MIN_INJECT_BALANCE_WEI) {
         balDisplay.classList.add('cm-pp-bal-low');
       }
     } catch (e) {
@@ -678,7 +757,7 @@
     info.textContent = count === 0 ? '0 selected' : `${count} selected · ~${totalTokens} tokens`;
 
     // Logic: balance < 0.001 → "Top up AIC" button
-    if (_state.balance < MIN_BALANCE_WEI) {
+    if (_state.balance < MIN_INJECT_BALANCE_WEI) {
       btn.disabled = false;
       btn.textContent = '💧 Top up AIC';
       btn.classList.add('cm-pp-inject-topup');
@@ -697,7 +776,7 @@
 
   async function handleInjectClick() {
     // If no balance → open faucet
-    if (_state.balance < MIN_BALANCE_WEI) {
+    if (_state.balance < MIN_INJECT_BALANCE_WEI) {
       const url = _state.wallet ? `${FAUCET_URL}/?wallet=${_state.wallet}` : FAUCET_URL;
       window.open(url, '_blank');
       return;
@@ -731,7 +810,10 @@
       // Inject immediately
       const ok = injectIntoInput(text);
       if (ok) {
-        toast(`✅ Injected ${result.injected} memories · 0.001 AIC`, 'success');
+        // v3.1.3: decia 0.001 AIC y el cobro real es 0.1 desde el 2026-06-30.
+        // Se informaba al usuario cien veces menos de lo que se le cobraba.
+        const charged = (result.payment && result.payment.charged_aic) || INJECT_FEE_AIC;
+        toast(`✅ Injected ${result.injected} memories · ${charged} AIC`, 'success');
       } else {
         await navigator.clipboard.writeText(text);
         toast('Inject paid · text copied to clipboard', 'success');
@@ -935,7 +1017,7 @@
     // Retrospective scan after page loads + observe for new
     setTimeout(() => {
       runScan();
-      console.log(`[ChainMemory v3.1.2] save-button mode on ${_platform.name}: ${_platform.singleButtonAtEnd ? 'single-at-end' : 'per-response'}`);
+      console.log(`[ChainMemory v3.1.3] save-button mode on ${_platform.name}: ${_platform.singleButtonAtEnd ? 'single-at-end' : 'per-response'}`);
       startObserver();
     }, 1500);
 
@@ -950,7 +1032,7 @@
       }
     });
 
-    console.log('[ChainMemory v3.1.2] loaded on', _platform.name);
+    console.log('[ChainMemory v3.1.3] loaded on', _platform.name);
   }
 
   if (document.readyState === 'loading') {

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.1.2 — popup.js
+// ChainMemory v3.1.3 — popup.js
 // Complete onboarding (auto-generate + manual paste) + tabs
 // v3.1.1: Project Brain has NO hardcoded default — user sets their own
 //         (prevents leaking the internal 'chainmemory' namespace)

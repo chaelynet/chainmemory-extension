@@ -22,17 +22,21 @@ ChainMemory charges protocol fees in AIC, the native token of its chain. The ext
 
 | Action | Cost |
 |---|---|
-| Save a response | **0.001 AIC** |
+| Save a response | **0.001 AIC** protocol fee **+ on-chain storage, which grows with length** |
 | Inject memories into a chat | **0.1 AIC** per injection, regardless of how many memories |
 | Inject project state | free |
 | Reading, filtering, tagging, archiving | free |
 
-Half of every fee is burned, half goes to the ecosystem treasury. Claim free AIC at [faucet.chainmemory.ai](https://faucet.chainmemory.ai).
+Half of every protocol fee is burned, half goes to the ecosystem treasury. Claim free AIC at [faucet.chainmemory.ai](https://faucet.chainmemory.ai).
+
+**Saving is priced by size**, because the encrypted content is written on-chain and every byte is permanent. Measured on the live chain: roughly **0.0008 AIC per 1,000 characters** on top of the protocol fee. A typical response costs a fraction of a cent of AIC; the extension shows the estimate on the Save button **before** you click, and confirms the actual size after.
 
 ## Current limits
 
-- **Saved responses are stored up to 1,500 characters.** Longer responses are cut at that point. The reason is that the encrypted content is written on-chain, where every byte is permanent and costs gas. This limit is under review.
+- **There is no character limit on what you save.** Until v3.1.2 responses were silently cut at 1,500 characters, which truncated about a quarter of all stored memories without telling anyone. That cut is gone.
+- **A single response must fit in one blockchain transaction**, which at current gas rates means roughly **20,000 characters**. Above that the extension tells you and refuses to save, rather than cutting the text or failing silently. It is a limit of the chain, not of your plan.
 - **Project state injection is capped at 7,000 characters**, so it fits inside the input box of every supported platform. Only current items are sent — superseded decisions and closed risks stay in the Brain and are not injected.
+- **On Perplexity, only the most recent response can be saved.** That platform re-renders its page constantly, so the extension keeps a single Save button at the end of the conversation instead of one per response. Saving older responses there is not supported yet.
 
 ## Installation (unpacked, for development)
 
@@ -88,6 +92,7 @@ chainmemory-extension/
 
 ## Version history
 
+- **3.1.3** (July 2026) — removes the 1,500-character cut on saved responses; shows the estimated cost on the Save button before saving and the actual size after; corrects the injection fee shown to the user (it reported 0.001 AIC while the protocol charged 0.1); adds a technical ceiling derived from the chain's block gas limit, which warns instead of truncating; opens the memory panel with its API calls in parallel; response scanning is now linear instead of quadratic on long conversations.
 - **3.1.2** (July 2026) — manifest description now declares the AIC wallet, required by the Chrome Web Store; memory addressing migrated to per-key numbering.
 - **3.1.1** — rejected by the Chrome Web Store and never published. Its changes are included in 3.1.2: compact project-state injection with a hard character cap (fixes "over the limit" on Perplexity), no default project name, and a fix for text duplication in React-based editors.
 - **3.1.0** (July 2026) — project state injection, memory re-tagging and archiving from the popup, project management, per-platform save button strategies.
