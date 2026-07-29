@@ -1,759 +1,283 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>ChainMemory</title>
-
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  width: 380px;
-  min-height: 500px;
-  max-height: 600px;
-  background: #06060e;
-  color: #e8e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  font-size: 13px;
-  overflow-y: auto;
-}
-.header {
-  padding: 20px;
-  border-bottom: 1px solid #1f1f2a;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  font-size: 15px;
-}
-.logo-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #7F77DD, #1D9E75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-weight: 700;
-  font-size: 13px;
-}
-.live {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: #5DCAA5;
-}
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #1D9E75;
-  animation: pulse 2s ease infinite;
-}
-@keyframes pulse { 50% { opacity: 0.4; } }
-.tabs {
-  display: flex;
-  padding: 12px 16px 0;
-  gap: 4px;
-  border-bottom: 1px solid #1f1f2a;
-}
-.tab {
-  padding: 10px 14px;
-  background: transparent;
-  border: none;
-  color: #8a8a9a;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-.tab.active {
-  color: #AFA9EC;
-  border-bottom-color: #7F77DD;
-}
-.content { padding: 20px; }
-.hide { display: none !important; }
-h2 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; margin-top: 14px; color: #d0d0e0; }
-.sub { color: #8a8a9a; font-size: 12px; line-height: 1.5; margin-bottom: 16px; }
-.field { margin-bottom: 14px; }
-.label {
-  display: block;
-  font-size: 10px;
-  color: #5a5a70;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 6px;
-  font-weight: 500;
-}
-input, textarea, select {
-  width: 100%;
-  padding: 10px 12px;
-  background: #0d0d18;
-  border: 1px solid #2a2a35;
-  border-radius: 8px;
-  color: #e8e8f0;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  outline: none;
-  resize: none;
-}
-input:focus, textarea:focus, select:focus { border-color: #7F77DD; }
-input[readonly] { background: #08080f; color: #AFA9EC; }
-.btn {
-  width: 100%;
-  padding: 11px;
-  background: linear-gradient(135deg, #7F77DD, #534AB7);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-.btn:hover:not(:disabled) { transform: translateY(-1px); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-.btn-sec {
-  background: transparent;
-  border: 1px solid #2a2a35;
-}
-.btn-sec:hover:not(:disabled) {
-  background: rgba(127, 119, 221, 0.08);
-}
-.btn-success {
-  background: linear-gradient(135deg, #1D9E75, #0F6348);
-}
-.btn-danger {
-  background: transparent;
-  border: 1px solid #4a2a35;
-  color: #F09595;
-}
-.btn + .btn { margin-top: 8px; }
-.msg {
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  margin-top: 12px;
-  line-height: 1.5;
-}
-.msg.success { background: rgba(29,158,117,0.1); border: 1px solid rgba(29,158,117,0.3); color: #5DCAA5; }
-.msg.error { background: rgba(226,75,74,0.1); border: 1px solid rgba(226,75,74,0.3); color: #F09595; }
-.msg.info { background: rgba(127,119,221,0.1); border: 1px solid rgba(127,119,221,0.3); color: #AFA9EC; }
-.msg.warn { background: rgba(239,159,39,0.1); border: 1px solid rgba(239,159,39,0.3); color: #FAC775; }
-.link {
-  color: #7F77DD;
-  text-decoration: none;
-  font-size: 11px;
-}
-.link:hover { text-decoration: underline; }
-
-.warning-box {
-  padding: 12px;
-  background: rgba(239,159,39,0.08);
-  border: 1px solid rgba(239,159,39,0.25);
-  border-radius: 8px;
-  margin: 14px 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #FAC775;
-}
-.warning-box .warning-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.checkbox-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 14px 0;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.checkbox-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  cursor: pointer;
-  accent-color: #7F77DD;
-  flex-shrink: 0;
-}
-.code-block {
-  background: #08080f;
-  border: 1px solid #1f1f2a;
-  border-radius: 8px;
-  padding: 10px;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: #AFA9EC;
-  word-break: break-all;
-  margin-bottom: 8px;
-  user-select: all;
-}
-.copy-row {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.copy-row .code-block { flex: 1; margin-bottom: 0; }
-.copy-btn {
-  padding: 6px 10px;
-  background: #1f1f2a;
-  border: 1px solid #2a2a35;
-  border-radius: 6px;
-  color: #AFA9EC;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.copy-btn:hover { background: #2a2a3a; }
-.copy-btn.copied {
-  background: rgba(29,158,117,0.2);
-  border-color: rgba(29,158,117,0.4);
-  color: #5DCAA5;
-}
-
-.memory-item {
-  padding: 12px;
-  background: #0d0d18;
-  border: 1px solid #1f1f2a;
-  border-left: 3px solid #534AB7;
-  border-radius: 8px;
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-.mem-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: #5a5a70;
-  margin-bottom: 4px;
-}
-.mem-badge {
-  display: inline-block;
-  padding: 1px 6px;
-  background: rgba(127,119,221,0.15);
-  color: #AFA9EC;
-  border-radius: 4px;
-  font-size: 9px;
-  font-weight: 500;
-}
-.mem-text {
-  color: #d0d0e0;
-  line-height: 1.4;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.empty {
-  text-align: center;
-  padding: 40px 20px;
-  color: #5a5a70;
-  font-size: 12px;
-}
-.stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-.stat-card {
-  padding: 12px;
-  background: #0d0d18;
-  border: 1px solid #1f1f2a;
-  border-radius: 8px;
-  text-align: center;
-}
-.stat-val {
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 18px;
-  font-weight: 600;
-  color: #AFA9EC;
-}
-.stat-lbl {
-  font-size: 10px;
-  color: #5a5a70;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-top: 2px;
-}
-.instructions {
-  font-size: 11px;
-  line-height: 1.6;
-  color: #8a8a9a;
-  background: #0d0d18;
-  border: 1px solid #1f1f2a;
-  border-radius: 8px;
-  padding: 12px;
-  margin-top: 12px;
-}
-.footer {
-  padding: 12px 20px;
-  border-top: 1px solid #1f1f2a;
-  text-align: center;
-  font-size: 11px;
-  color: #5a5a70;
-}
-.step {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.step-num {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(127,119,221,0.15);
-  color: #AFA9EC;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-}
-.divider {
-  height: 1px;
-  background: #1f1f2a;
-  margin: 16px 0;
-}
-.faq-item {
-  background: #0d0d18;
-  border: 1px solid #1f1f2a;
-  border-radius: 8px;
-  margin-bottom: 8px;
-  overflow: hidden;
-}
-.faq-q {
-  padding: 10px 12px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  color: #d0d0e0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.faq-q:hover { background: rgba(127, 119, 221, 0.05); }
-.faq-q .arrow { color: #5a5a70; transition: transform 0.2s; }
-.faq-q.open .arrow { transform: rotate(90deg); }
-.faq-a {
-  padding: 0 12px 10px;
-  font-size: 11px;
-  color: #8a8a9a;
-  line-height: 1.6;
-  display: none;
-}
-.faq-q.open + .faq-a { display: block; }
-.key-banner {
-  padding: 8px 12px;
-  background: rgba(127,119,221,0.08);
-  border: 1px solid rgba(127,119,221,0.2);
-  border-radius: 8px;
-  font-size: 11px;
-  color: #AFA9EC;
-  margin-bottom: 14px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-.key-banner .view-btn {
-  background: rgba(127,119,221,0.2);
-  border: 1px solid rgba(127,119,221,0.3);
-  color: #AFA9EC;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 10px;
-  cursor: pointer;
-  font-family: inherit;
-  white-space: nowrap;
-}
-.key-banner .view-btn:hover { background: rgba(127,119,221,0.3); }
-
-.spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255,255,255,0.2);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-  margin-right: 6px;
-  vertical-align: middle;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---- v2.1.0: Memory injection settings ---- */
-.injection-box {
-  background: rgba(127,119,221,0.06);
-  border: 1px solid rgba(127,119,221,0.18);
-  border-radius: 10px;
-  padding: 12px;
-  margin: 14px 0;
-}
-.injection-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #AFA9EC;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.injection-desc {
-  font-size: 11px;
-  color: #8a8a9a;
-  line-height: 1.5;
-  margin-bottom: 10px;
-}
-.injection-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
-}
-.injection-row label {
-  font-size: 11px;
-  color: #8a8a9a;
-  flex: 1;
-}
-.injection-row select {
-  width: auto;
-  padding: 6px 10px;
-  font-size: 11px;
-}
-.injection-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: #c0c0d0;
-  margin-top: 8px;
-  cursor: pointer;
-}
-.injection-checkbox input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  accent-color: #7F77DD;
-  cursor: pointer;
-}
-</style>
+  <meta charset="UTF-8">
+  <title>ChainMemory v3.0.5</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-
-<div class="header">
-  <div class="logo">
-    <div class="logo-icon">C</div>
-    ChainMemory
-  </div>
-  <div class="live"><div class="dot"></div><span id="netStatus">Loading...</span></div>
-</div>
-
-<div class="tabs">
-  <button class="tab active" data-tab="setup">Setup</button>
-  <button class="tab" data-tab="history">History</button>
-  <button class="tab" data-tab="about">Guide</button>
-</div>
-
-<!-- ============================================== -->
-<!-- SETUP TAB                                       -->
-<!-- ============================================== -->
-<div class="content" id="tab-setup">
-
-  <!-- STATE 1: First-time user, no key yet -->
-  <div id="state-noKey">
-    <h2>Welcome to ChainMemory</h2>
-    <p class="sub">To save your AI conversations on-chain, you need an API key. Choose one option:</p>
-
-    <button class="btn" id="generateKey">✨ Generate API Key automatically</button>
-    <button class="btn btn-sec" id="haveKey">I already have a key</button>
-
-    <div id="generateMsg"></div>
-
-    <div class="divider"></div>
-
-    <h3 style="margin-top:0;color:#8a8a9a;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">What happens next</h3>
-    <div class="step"><span class="step-num">1</span><span>Create your API key and blockchain wallet (free)</span></div>
-    <div class="step"><span class="step-num">2</span><span>Save your API key in a secure place</span></div>
-    <div class="step"><span class="step-num">3</span><span>Claim free AIC tokens at our faucet</span></div>
-    <div class="step"><span class="step-num">4</span><span>Visit ChatGPT, Claude, Gemini, or Perplexity</span></div>
-    <div class="step"><span class="step-num">5</span><span>Click "Save to ChainMemory" on any AI response</span></div>
-  </div>
-
-  <!-- STATE 2: Paste existing key -->
-  <div id="state-pasteKey" class="hide">
-    <h2>Enter your API key</h2>
-    <p class="sub">If you already have a ChainMemory API key, paste it below.</p>
-
-    <div class="field">
-      <label class="label">API Key</label>
-      <input id="apiKey" placeholder="aic_..." spellcheck="false">
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- HEADER -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <header class="cm-header">
+    <div class="cm-brand">
+      <span class="cm-logo">⛓</span>
+      <span class="cm-brand-text">ChainMemory</span>
+      <span class="cm-version">v3.0.5</span>
     </div>
+    <div class="cm-net-status" id="netStatus">…</div>
+  </header>
 
-    <button class="btn" id="saveKey">Save & Connect</button>
-    <button class="btn btn-sec" id="backToNoKey">Back</button>
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- ONBOARDING STATES -->
+  <!-- ═══════════════════════════════════════════════════════ -->
 
-    <div id="setupMsg"></div>
-  </div>
+  <!-- State: noKey (default for new users) -->
+  <section class="cm-state" id="state-noKey">
+    <div class="cm-onboarding">
+      <h2 class="cm-welcome">Welcome to ChainMemory</h2>
+      <p class="cm-welcome-sub">Save AI memories on blockchain and inject them in any chat</p>
 
-  <!-- STATE 3: Key just generated, must save it -->
-  <div id="state-keyCreated" class="hide">
-    <h2>✓ Your API key is ready</h2>
-    <p class="sub">Below is your unique API key and blockchain wallet. Save them now.</p>
+      <button class="cm-btn cm-btn-primary cm-btn-large" id="generateKey">
+        ✨ Generate API Key automatically
+      </button>
+      <p class="cm-help-inline">Free wallet + 1 AIC token</p>
 
-    <div class="field">
-      <label class="label">Your API Key</label>
-      <div class="copy-row">
-        <div class="code-block" id="newKeyDisplay"></div>
-        <button class="copy-btn" data-copy="newKeyDisplay">Copy</button>
-      </div>
+      <button class="cm-btn cm-btn-ghost cm-btn-large" id="haveKey">
+        I already have a key
+      </button>
+
+      <div class="cm-msg" id="generateMsg"></div>
+
+      <h3 class="cm-section-title">WHAT HAPPENS NEXT</h3>
+      <ol class="cm-steps">
+        <li><span class="cm-step-num">1</span> Create your API key and wallet (free)</li>
+        <li><span class="cm-step-num">2</span> Claim free AIC tokens automatically</li>
+        <li><span class="cm-step-num">3</span> Visit ChatGPT, Claude, Gemini, or Perplexity</li>
+        <li><span class="cm-step-num">4</span> Save AI responses with the page button</li>
+        <li><span class="cm-step-num">5</span> Inject selected memories into any chat</li>
+      </ol>
     </div>
+  </section>
 
-    <div class="field">
-      <label class="label">Your Wallet Address</label>
-      <div class="copy-row">
-        <div class="code-block" id="newWalletDisplay"></div>
-        <button class="copy-btn" data-copy="newWalletDisplay">Copy</button>
+  <!-- State: pasteKey (user already has one) -->
+  <section class="cm-state hide" id="state-pasteKey">
+    <div class="cm-paste-form">
+      <h3>Paste your API key</h3>
+      <p class="cm-help">Starts with <code>aic_</code></p>
+      <input type="password" id="apiKey" placeholder="aic_..." class="cm-input">
+      <div class="cm-btn-row">
+        <button class="cm-btn cm-btn-ghost" id="backToNoKey">← Back</button>
+        <button class="cm-btn cm-btn-primary" id="saveKey">Connect</button>
       </div>
+      <div class="cm-msg" id="setupMsg"></div>
+      <p class="cm-help">
+        Don't have a key? <a href="#" id="linkGenerate">Generate one automatically</a>
+      </p>
     </div>
+  </section>
 
-    <div class="warning-box">
-      <div class="warning-title">⚠️ Save your API key now</div>
-      Save this API key in a secure place such as a password manager. ChainMemory cannot recover it if lost — and without it, your memories on the blockchain will be inaccessible.
-    </div>
+  <!-- State: keyCreated (right after generating) -->
+  <section class="cm-state hide" id="state-keyCreated">
+    <div class="cm-key-created">
+      <h3 class="cm-success-title">🎉 API Key created!</h3>
+      <p class="cm-warn-box">⚠️ Save this key somewhere safe. You'll need it to access your memories.</p>
 
-    <label class="checkbox-row">
-      <input type="checkbox" id="confirmSaved">
-      <span>I have saved my API key in a secure place</span>
-    </label>
-
-    <button class="btn" id="continueAfterCreate" disabled>Continue → Get free AIC tokens</button>
-  </div>
-
-  <!-- STATE 4: Connected (after key + register) -->
-  <div id="state-connected" class="hide">
-    <div class="key-banner">
-      <span>🔐 API key stored. Backed it up?</span>
-      <button class="view-btn" id="viewKey">View key</button>
-    </div>
-
-    <h2>You're connected</h2>
-    <p class="sub">Save AI responses to ChainMemory, and inject your verified memory into any chat.</p>
-
-    <div class="stats">
-      <div class="stat-card">
-        <div class="stat-val" id="savedCount">0</div>
-        <div class="stat-lbl">Saved</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val" id="walletShort">...</div>
-        <div class="stat-lbl">Wallet</div>
-      </div>
-    </div>
-
-    <!-- NEW in v2.1.0: Memory injection settings -->
-    <div class="injection-box">
-      <div class="injection-title">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4V20M4 12H20" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-        Memory injection
-      </div>
-      <div class="injection-desc">
-        On any AI page, click the floating <strong>"Inject memory"</strong> button (bottom-left) to paste your verified ChainMemory history into the prompt.
-      </div>
-      <div class="injection-row">
-        <label for="injectLimit">Memories per injection</label>
-        <select id="injectLimit">
-          <option value="5">5</option>
-          <option value="10" selected>10</option>
-          <option value="20">20</option>
-          <option value="50">50</option>
-        </select>
-      </div>
-      <label class="injection-checkbox">
-        <input type="checkbox" id="injectVerifiedOnly">
-        <span>Verified only (on-chain anchored memories)</span>
+      <label class="cm-modal-field">
+        <span>Your API Key</span>
+        <div class="cm-copy-row">
+          <code id="newKeyDisplay" class="cm-code-block">--</code>
+          <button class="cm-copy-btn" data-copy="newKeyDisplay">Copy</button>
+        </div>
       </label>
+
+      <label class="cm-modal-field">
+        <span>Your wallet</span>
+        <div class="cm-copy-row">
+          <code id="newWalletDisplay" class="cm-code-block">--</code>
+          <button class="cm-copy-btn" data-copy="newWalletDisplay">Copy</button>
+        </div>
+      </label>
+
+      <label class="cm-confirm-saved">
+        <input type="checkbox" id="confirmSaved">
+        <span>I have saved my API key in a safe place</span>
+      </label>
+
+      <button class="cm-btn cm-btn-primary cm-btn-large" id="continueAfterCreate" disabled>
+        Continue → Claim free AIC tokens
+      </button>
+    </div>
+  </section>
+
+  <!-- State: connected (main UI) -->
+  <section class="cm-state hide" id="state-connected">
+    <!-- Status bar -->
+    <div class="cm-status-bar">
+      <span class="cm-dot connected"></span>
+      <span class="cm-wallet-short" id="walletShort">--</span>
+      <span class="cm-balance" id="balanceAmount">--</span>
     </div>
 
-    <button class="btn btn-sec" id="claimAic">Get free AIC tokens</button>
-    <button class="btn btn-danger" id="disconnect">Disconnect</button>
+    <!-- Tabs -->
+    <nav class="cm-tabs">
+      <button class="cm-tab active" data-view="memories">📚 Memories</button>
+      <button class="cm-tab" data-view="settings">⚙ Settings</button>
+      <button class="cm-tab" data-view="history">📊 History</button>
+    </nav>
 
-    <p class="sub" style="margin-top:16px;text-align:center">Works on:</p>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px">
-      <span class="mem-badge">ChatGPT</span>
-      <span class="mem-badge">Claude</span>
-      <span class="mem-badge">Gemini</span>
-      <span class="mem-badge">Perplexity</span>
-    </div>
-  </div>
+    <!-- ── VIEW: MEMORIES ── -->
+    <div class="cm-view active" id="view-memories">
+      <div class="cm-info-box">
+        <p>Use the floating <strong>+ Inject memory</strong> button on any AI chat to inject selected memories.</p>
+      </div>
 
-  <!-- STATE 5: View key (with confirmation) -->
-  <div id="state-viewKey" class="hide">
-    <h2>🔐 Your API Key</h2>
-    <div class="msg warn">
-      Anyone with this key can save memories under your wallet. Don't share or screenshot this screen.
-    </div>
+      <div class="cm-quick-stats" id="quickStats">
+        <div class="cm-quick-stat">
+          <span class="cm-quick-label">Saved</span>
+          <span class="cm-quick-value" id="savedCount">--</span>
+        </div>
+        <div class="cm-quick-stat">
+          <span class="cm-quick-label">Balance</span>
+          <span class="cm-quick-value" id="quickBalance">--</span>
+        </div>
+      </div>
 
-    <div class="field" style="margin-top:14px">
-      <label class="label">API Key</label>
-      <div class="copy-row">
-        <div class="code-block" id="currentKeyDisplay"></div>
-        <button class="copy-btn" data-copy="currentKeyDisplay">Copy</button>
+      <h3 class="cm-section-title">ORGANIZE MEMORIES</h3>
+      <div class="cm-filters-row">
+        <select id="filter-project" class="cm-select">
+          <option value="">All projects</option>
+        </select>
+        <button class="cm-btn cm-btn-ghost cm-btn-small" id="refresh-memories">↻</button>
+      </div>
+
+      <div class="cm-memories-bulk" id="memories-bulk-bar" style="display:none">
+        <span class="cm-bulk-info"><span id="bulk-count">0</span> selected</span>
+        <select id="bulk-add-tag" class="cm-select cm-select-small">
+          <option value="">Add tag to selected…</option>
+        </select>
+        <button class="cm-btn cm-btn-primary cm-btn-small" id="bulk-apply">Apply</button>
+      </div>
+
+      <div class="cm-memories-list" id="memories-list">
+        <div class="cm-loading">Loading memories…</div>
       </div>
     </div>
 
-    <div class="field">
-      <label class="label">Wallet Address</label>
-      <div class="copy-row">
-        <div class="code-block" id="currentWalletDisplay"></div>
-        <button class="copy-btn" data-copy="currentWalletDisplay">Copy</button>
+    <!-- ── VIEW: SETTINGS ── -->
+    <div class="cm-view" id="view-settings">
+      <h3 class="cm-section-title">MY PROJECTS</h3>
+      <div class="cm-project-list" id="project-list">
+        <div class="cm-loading">Loading...</div>
       </div>
+
+      <button class="cm-btn cm-btn-ghost" id="btn-add-project">+ Add custom project</button>
+
+      <h3 class="cm-section-title">TEMPLATES</h3>
+      <div class="cm-template-list" id="template-list">
+        <div class="cm-loading">Loading...</div>
+      </div>
+
+      <h3 class="cm-section-title">PROJECT BRAIN</h3>
+      <label class="cm-modal-field">
+        <span>Project for "Inject project state"</span>
+        <input type="text" id="pb-project" placeholder="chainmemory" class="cm-input">
+      </label>
+
+      <h3 class="cm-section-title">CONNECTION</h3>
+      <div class="cm-conn-info">
+        <div class="cm-conn-row">
+          <span class="cm-conn-label">Wallet:</span>
+          <code class="cm-conn-value" id="conn-wallet">--</code>
+        </div>
+        <div class="cm-conn-row">
+          <span class="cm-conn-label">API key:</span>
+          <code class="cm-conn-value" id="conn-apikey">•••</code>
+          <button class="cm-btn cm-btn-ghost cm-btn-small" id="viewKey">View</button>
+        </div>
+        <div class="cm-btn-row">
+          <button class="cm-btn cm-btn-ghost" id="claimAic">💧 Claim AIC</button>
+          <button class="cm-btn cm-btn-danger" id="disconnect">Disconnect</button>
+        </div>
+      </div>
+
+      <p class="cm-footer-info">
+        ChainMemory v3.0.5 ·
+        <a href="https://chainmemory.ai" target="_blank">chainmemory.ai</a>
+      </p>
     </div>
 
-    <button class="btn btn-sec" id="closeViewKey">Close</button>
+    <!-- ── VIEW: HISTORY ── -->
+    <div class="cm-view" id="view-history">
+      <h3 class="cm-section-title">INJECT STATS</h3>
+      <div class="cm-stats-grid">
+        <div class="cm-stat-card">
+          <span class="cm-stat-label">Total injects</span>
+          <span class="cm-stat-value" id="stat-injects">0</span>
+        </div>
+        <div class="cm-stat-card">
+          <span class="cm-stat-label">Memories</span>
+          <span class="cm-stat-value" id="stat-memories">0</span>
+        </div>
+        <div class="cm-stat-card">
+          <span class="cm-stat-label">AIC spent</span>
+          <span class="cm-stat-value" id="stat-spent">0</span>
+        </div>
+      </div>
+
+      <h3 class="cm-section-title">RECENT INJECTS</h3>
+      <div class="cm-history-list" id="history-list">
+        <div class="cm-loading">Loading...</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- State: viewKey (full key display) -->
+  <section class="cm-state hide" id="state-viewKey">
+    <div class="cm-key-created">
+      <h3>Your credentials</h3>
+      <label class="cm-modal-field">
+        <span>API Key</span>
+        <div class="cm-copy-row">
+          <code id="currentKeyDisplay" class="cm-code-block">--</code>
+          <button class="cm-copy-btn" data-copy="currentKeyDisplay">Copy</button>
+        </div>
+      </label>
+      <label class="cm-modal-field">
+        <span>Wallet</span>
+        <div class="cm-copy-row">
+          <code id="currentWalletDisplay" class="cm-code-block">--</code>
+          <button class="cm-copy-btn" data-copy="currentWalletDisplay">Copy</button>
+        </div>
+      </label>
+      <button class="cm-btn cm-btn-primary cm-btn-large" id="closeViewKey">Done</button>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- MODAL: New project -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="cm-modal-backdrop" id="modal-project" style="display:none">
+    <div class="cm-modal">
+      <h3 id="modal-project-title">New project</h3>
+      <label class="cm-modal-field">
+        <span>Project ID (slug)</span>
+        <input type="text" id="proj-id" placeholder="my_project" class="cm-input">
+      </label>
+      <label class="cm-modal-field">
+        <span>Display name</span>
+        <input type="text" id="proj-name" placeholder="My Project" class="cm-input">
+      </label>
+      <label class="cm-modal-field">
+        <span>Keywords (comma-separated)</span>
+        <textarea id="proj-keywords" placeholder="keyword1, keyword2, keyword3" rows="3" class="cm-input"></textarea>
+      </label>
+      <label class="cm-modal-field">
+        <span>Color</span>
+        <input type="color" id="proj-color" value="#d4af37" class="cm-input-color">
+      </label>
+      <div class="cm-modal-actions">
+        <button class="cm-btn cm-btn-ghost" id="modal-project-cancel">Cancel</button>
+        <button class="cm-btn cm-btn-primary" id="modal-project-save">Save</button>
+      </div>
+    </div>
   </div>
 
-</div>
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Toast -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="cm-toast" id="toast" style="display:none"></div>
 
-<!-- ============================================== -->
-<!-- HISTORY TAB                                     -->
-<!-- ============================================== -->
-<div class="content hide" id="tab-history">
-  <h2>Saved memories</h2>
-  <p class="sub">Your recent AI conversations saved to ChainMemory.</p>
-  <div id="historyList"></div>
-</div>
-
-<!-- ============================================== -->
-<!-- GUIDE TAB                                       -->
-<!-- ============================================== -->
-<div class="content hide" id="tab-about">
-  <h2>How ChainMemory works</h2>
-  <p class="sub">Permanent + portable memory for AI conversations, secured by blockchain.</p>
-
-  <h3>Quick Start</h3>
-  <div class="step"><span class="step-num">1</span><span>Generate your API key (or paste an existing one)</span></div>
-  <div class="step"><span class="step-num">2</span><span>Save your API key in a password manager</span></div>
-  <div class="step"><span class="step-num">3</span><span>Claim free AIC tokens at <a href="https://faucet.chainmemory.ai" target="_blank" class="link">faucet.chainmemory.ai</a></span></div>
-  <div class="step"><span class="step-num">4</span><span>Open ChatGPT, Claude, Gemini, or Perplexity</span></div>
-  <div class="step"><span class="step-num">5</span><span>Click "Save to ChainMemory" on any AI response</span></div>
-  <div class="step"><span class="step-num">6</span><span>Use the floating "Inject memory" button to bring your history into any AI</span></div>
-
-  <h3>About your API Key</h3>
-  <div class="instructions">
-    Your API key is the only way to access your memories on ChainMemory. It is generated locally in your browser and is unique to you.
-    <br><br>
-    <strong>Important rules:</strong>
-    <br>• Save it in a password manager (1Password, Bitwarden, LastPass, etc.)
-    <br>• Never share it publicly or post it on social media
-    <br>• <strong>ChainMemory cannot recover it if lost</strong> — by design, there is no "forgot password" option
-    <br>• If you lose it, you will not be able to access your saved memories (but they remain on the blockchain forever)
-  </div>
-
-  <h3>About your Wallet</h3>
-  <div class="instructions">
-    Each API key has a unique blockchain wallet (0x...) associated with it. This wallet is the on-chain identity of your memories.
-    <br><br>
-    You can view your wallet activity at <a href="https://chainmemory.ai" target="_blank" class="link">chainmemory.ai</a> by searching for your wallet address.
-  </div>
-
-  <h3>What is permanent storage?</h3>
-  <div class="instructions">
-    When you click "Save to ChainMemory":
-    <br><br>
-    1. A summary of the conversation is sent to the ChainMemory blockchain (Chain ID 202604)
-    <br>2. It is stored permanently with your wallet as the owner
-    <br>3. <strong>No one can delete or modify it</strong> — not even OpenAI, Google, Anthropic, or ChainMemory itself
-    <br>4. You can access it anytime from <a href="https://chainmemory.ai" target="_blank" class="link">chainmemory.ai</a>
-  </div>
-
-  <h3>What is memory injection? <span style="font-size:9px;background:rgba(127,119,221,0.2);color:#AFA9EC;padding:2px 6px;border-radius:4px;margin-left:4px;vertical-align:middle">NEW in v2.1</span></h3>
-  <div class="instructions">
-    When you visit ChatGPT, Claude, Gemini, or Perplexity, a floating <strong>"Inject memory"</strong> button appears at the bottom-left of the page.
-    <br><br>
-    Click it to:
-    <br>1. See a preview of your recent ChainMemory history
-    <br>2. Confirm — your memory gets pasted at the top of the chat input
-    <br>3. The AI you're talking to reads your verified history and gives continuity
-    <br><br>
-    This lets you carry your AI memory from any platform to any other — the same memory, anywhere.
-  </div>
-
-  <h3>FAQ</h3>
-
-  <div class="faq-item">
-    <div class="faq-q">Is it really free? <span class="arrow">›</span></div>
-    <div class="faq-a">Yes. You only need AIC tokens (the native gas token) to write to the blockchain, and the faucet gives them for free. The extension itself is free forever.</div>
-  </div>
-
-  <div class="faq-item">
-    <div class="faq-q">What if I lose my API key? <span class="arrow">›</span></div>
-    <div class="faq-a">You will lose access to your saved memories. They will remain on the blockchain forever, but only the holder of the API key can save new ones under that wallet. Save your key in a password manager from day one.</div>
-  </div>
-
-  <div class="faq-item">
-    <div class="faq-q">Can I delete a memory? <span class="arrow">›</span></div>
-    <div class="faq-a">No. By design, memories saved to ChainMemory are permanent and cannot be deleted by anyone — including you. This is the core promise of the project. Think before you click "Save".</div>
-  </div>
-
-  <div class="faq-item">
-    <div class="faq-q">What gets saved exactly? <span class="arrow">›</span></div>
-    <div class="faq-a">Currently, a 280-character summary of the question and the AI's response is saved on-chain. We are exploring future tiers for saving full conversations.</div>
-  </div>
-
-  <div class="faq-item">
-    <div class="faq-q">Why blockchain instead of a normal database? <span class="arrow">›</span></div>
-    <div class="faq-a">Because no central authority (including ChainMemory) can alter or delete your AI memories. They are owned by you, verifiable, and outlive any company.</div>
-  </div>
-
-  <div class="faq-item">
-    <div class="faq-q">Is the injected text visible to the AI provider? <span class="arrow">›</span></div>
-    <div class="faq-a">Yes — the memory is pasted into the chat input, so the AI provider (OpenAI, Anthropic, etc.) processes it like any other text you type. Only inject memories you're comfortable sharing in that conversation.</div>
-  </div>
-
-  <h3>Troubleshooting</h3>
-  <div class="instructions">
-    <strong>"Save" button doesn't appear:</strong> Refresh the page. If still missing, the AI platform may have updated its layout — please report it.
-    <br><br>
-    <strong>"Inject memory" button doesn't appear:</strong> Make sure you're on a supported AI page (ChatGPT, Claude, Gemini, Perplexity). The button is fixed at the bottom-left corner.
-    <br><br>
-    <strong>Injection didn't paste into the input:</strong> The platform may have changed its HTML. The extension automatically falls back to copying the context to your clipboard — just paste it manually.
-    <br><br>
-    <strong>"Insufficient funds" error:</strong> Claim free AIC tokens at <a href="https://faucet.chainmemory.ai" target="_blank" class="link">the faucet</a>.
-    <br><br>
-    <strong>"Not registered" error:</strong> The extension will auto-register you on first save. If it persists, disconnect and reconnect from the Setup tab.
-  </div>
-
-  <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
-    <a href="https://chainmemory.ai" target="_blank" class="link">→ Main site</a>
-    <a href="https://faucet.chainmemory.ai" target="_blank" class="link">→ Get free AIC tokens</a>
-    <a href="https://api.chainmemory.ai/llms.txt" target="_blank" class="link">→ API documentation</a>
-  </div>
-</div>
-
-<div class="footer">
-  v2.1.0 · <a href="https://chainmemory.ai" target="_blank" class="link">chainmemory.ai</a>
-</div>
-
-<script src="popup.js"></script>
+  <script src="popup.js"></script>
 </body>
 </html>

@@ -1,38 +1,45 @@
 {
   "manifest_version": 3,
-  "name": "ChainMemory — Save AI conversations forever",
+  "name": "ChainMemory — Portable AI Memory",
   "short_name": "ChainMemory",
-  "version": "2.1.0",
-  "description": "Save and recall your ChatGPT, Claude, Gemini, and Perplexity conversations across platforms. Own your AI memory forever.",
+  "version": "3.1.0",
+  "description": "Save and reuse your AI memory across ChatGPT, Claude, Gemini and Perplexity. Portable, verifiable, owned by you.",
   "author": "ChainMemory Team",
   "homepage_url": "https://chainmemory.ai",
+
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+
   "action": {
     "default_popup": "popup.html",
+    "default_title": "ChainMemory",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
-    },
-    "default_title": "ChainMemory"
+    }
   },
+
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting"
+    "clipboardWrite"
   ],
+
   "host_permissions": [
+    "https://api.chainmemory.ai/*",
+    "https://chainmemory.ai/*",
+    "https://faucet.chainmemory.ai/*",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://claude.ai/*",
     "https://gemini.google.com/*",
     "https://www.perplexity.ai/*",
-    "https://api.chainmemory.ai/*"
+    "https://perplexity.ai/*"
   ],
+
   "content_scripts": [
     {
       "matches": [
@@ -40,13 +47,15 @@
         "https://chat.openai.com/*",
         "https://claude.ai/*",
         "https://gemini.google.com/*",
-        "https://www.perplexity.ai/*"
+        "https://www.perplexity.ai/*",
+        "https://perplexity.ai/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
   ],
+
   "background": {
     "service_worker": "background.js"
   }
