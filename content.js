@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.1.3 — content.js
+// ChainMemory v3.1.4 — content.js
 // Features:
 //   1. Save to ChainMemory button on each AI response (from v2.1.0)
 //   2. Retrospective scan of old messages (NEW)
@@ -23,6 +23,15 @@
 //      than what the server actually charged since 2026-06-30).
 //  14. Panel opens with its three API calls in parallel, not in series.
 //  15. Response scanning is O(n) instead of O(n²) on long chats.
+//
+// v3.1.4:
+//  16. Organization keys (aicm_ / aicp_) are accepted, not just personal
+//      aic_ keys — a team member can use the extension with the key their
+//      administrator issued.
+//  17. A write denied by role reports "your role (viewer) cannot write"
+//      instead of a bare HTTP 403.
+//  18. The version shown in the UI and in the console is read from the
+//      manifest, so it can no longer drift from the published version.
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -172,7 +181,7 @@
     const res = await fetch(API_BASE + path, opts);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = new Error(data.error || `HTTP ${res.status}`);
+      const err = new Error(res.status === 403 && data.role ? `your role (${data.role}) cannot write` : (data.error || `HTTP ${res.status}`));
       err.status = res.status;
       err.data = data;
       throw err;
@@ -1017,7 +1026,7 @@
     // Retrospective scan after page loads + observe for new
     setTimeout(() => {
       runScan();
-      console.log(`[ChainMemory v3.1.3] save-button mode on ${_platform.name}: ${_platform.singleButtonAtEnd ? 'single-at-end' : 'per-response'}`);
+      console.log(`[ChainMemory v${chrome.runtime.getManifest().version}] save-button mode on ${_platform.name}: ${_platform.singleButtonAtEnd ? 'single-at-end' : 'per-response'}`);
       startObserver();
     }, 1500);
 
@@ -1032,7 +1041,7 @@
       }
     });
 
-    console.log('[ChainMemory v3.1.3] loaded on', _platform.name);
+    console.log(`[ChainMemory v${chrome.runtime.getManifest().version}] loaded on`, _platform.name);
   }
 
   if (document.readyState === 'loading') {

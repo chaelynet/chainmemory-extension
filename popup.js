@@ -146,8 +146,8 @@ async function continueAfterCreate() {
 // ── Save existing key (paste flow) ──
 async function saveExistingKey() {
   const key = document.getElementById('apiKey').value.trim();
-  if (!key.startsWith('aic_')) {
-    msg('setupMsg', 'Invalid API key. Must start with "aic_"', 'error');
+  if (!/^aic[mp]?_/.test(key)) {
+    msg('setupMsg', 'Invalid key. Must start with "aic_", "aicm_" or "aicp_"', 'error');
     return;
   }
   msg('setupMsg', 'Verifying...', 'info');
@@ -697,7 +697,7 @@ function escapeHtml(s) {
 // ═══════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', async () => { try { const _v = 'v' + chrome.runtime.getManifest().version; const _a = document.getElementById('cmVersion'); const _b = document.getElementById('cmVersionFooter'); if (_a) _a.textContent = _v; if (_b) _b.textContent = _v; } catch (e) {}
   await loadConfig();
   updateNetStatus();
   setInterval(updateNetStatus, 30000);

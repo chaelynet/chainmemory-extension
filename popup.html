@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ChainMemory v3.1.2</title>
+  <title>ChainMemory</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
     <div class="cm-brand">
       <span class="cm-logo">⛓</span>
       <span class="cm-brand-text">ChainMemory</span>
-      <span class="cm-version">v3.1.2</span>
+      <span class="cm-version" id="cmVersion">v3.1.4</span>
     </div>
     <div class="cm-net-status" id="netStatus">…</div>
   </header>
@@ -54,8 +54,8 @@
   <section class="cm-state hide" id="state-pasteKey">
     <div class="cm-paste-form">
       <h3>Paste your API key</h3>
-      <p class="cm-help">Starts with <code>aic_</code></p>
-      <input type="password" id="apiKey" placeholder="aic_..." class="cm-input">
+      <p class="cm-help">Starts with <code>aic_</code> &mdash; or <code>aicm_</code> / <code>aicp_</code> if your team gave it to you</p>
+      <input type="password" id="apiKey" placeholder="aic_... / aicm_... / aicp_..." class="cm-input">
       <div class="cm-btn-row">
         <button class="cm-btn cm-btn-ghost" id="backToNoKey">← Back</button>
         <button class="cm-btn cm-btn-primary" id="saveKey">Connect</button>
@@ -192,7 +192,7 @@
       </div>
 
       <p class="cm-footer-info">
-        ChainMemory v3.1.2 ·
+        ChainMemory <span id="cmVersionFooter">v3.1.4</span> ·
         <a href="https://chainmemory.ai" target="_blank">chainmemory.ai</a>
       </p>
     </div>
