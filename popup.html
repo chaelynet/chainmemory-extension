@@ -174,17 +174,18 @@
         <input type="text" id="pb-project" placeholder="my-project" class="cm-input">
       </label>
 
-      <h3 class="cm-section-title">BÓVEDA CIEGA (opcional)</h3>
+      <h3 class="cm-section-title">BLIND VAULT (optional)</h3>
       <label class="cm-modal-field">
-        <span>Tus 12 palabras. Cifran tus memorias antes de salir; el servidor no puede leerlas. Se guardan solo en este dispositivo.</span>
-        <textarea id="seedPhrase" placeholder="palabra1 palabra2 ... palabra12" class="cm-input" rows="2"></textarea>
+        <span>Your 12 words. They encrypt your memories before they leave this browser; the server cannot read them. Stored on this device only.</span>
+        <textarea id="seedPhrase" placeholder="word1 word2 ... word12" class="cm-input" rows="2"></textarea>
       </label>
       <div class="cm-btn-row">
-        <button class="cm-btn cm-btn-primary" id="saveSeed">Activar bóveda</button>
-        <button class="cm-btn cm-btn-ghost" id="clearSeed">Quitar</button>
+        <button class="cm-btn cm-btn-ghost" id="genSeed">Generate phrase</button>
+        <button class="cm-btn cm-btn-primary" id="saveSeed">Activate vault</button>
+        <button class="cm-btn cm-btn-ghost" id="clearSeed">Remove</button>
       </div>
       <div class="cm-msg" id="seedMsg"></div>
-      <p class="cm-footer-info" style="margin-top:8px">Si perdés estas palabras, las memorias cifradas no se recuperan — ni vos ni nadie. Anotalas en papel.</p>
+      <p class="cm-footer-info" style="margin-top:8px">If you lose these words, your encrypted memories are gone — for you and for everyone. Write them down on paper.</p>
 
       <h3 class="cm-section-title">CONNECTION</h3>
       <div class="cm-conn-info">

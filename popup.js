@@ -652,38 +652,51 @@ async function disconnect() {
   await route();
 }
 
-// ── Boveda ciega: frase de 12 palabras (guardada SOLO en este dispositivo) ──
+// ── Blind vault: 12-word phrase (stored ONLY on this device) ──
 async function refreshSeedStatus() {
   const el = document.getElementById('seedMsg');
   if (!el) return;
   const data = await new Promise(r => chrome.storage.local.get(['seedPhrase'], r));
   if (data.seedPhrase) {
-    el.textContent = '🔒 Bóveda activa — tus memorias se guardan cifradas.';
+    el.textContent = '🔒 Vault active — your memories are stored encrypted.';
     el.className = 'cm-msg success';
   } else {
-    el.textContent = 'Bóveda inactiva — las memorias se guardan en texto plano.';
+    el.textContent = 'Vault inactive — memories are stored in plain text.';
     el.className = 'cm-msg info';
   }
+}
+async function generateSeedPhrase() {
+  const ta = document.getElementById('seedPhrase');
+  const el = document.getElementById('seedMsg');
+  if (typeof CMBip39 === 'undefined') {
+    el.textContent = 'Cannot generate: the crypto module did not load.';
+    el.className = 'cm-msg error';
+    return;
+  }
+  const phrase = await CMBip39.generateMnemonic();
+  ta.value = phrase;
+  el.textContent = '⚠ Write these 12 words on paper BEFORE activating. Nobody can recover them for you.';
+  el.className = 'cm-msg error';
 }
 async function saveSeedPhrase() {
   const ta = document.getElementById('seedPhrase');
   const el = document.getElementById('seedMsg');
   const phrase = (ta.value || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  if (!phrase) { el.textContent = 'Escribí tus 12 palabras.'; el.className = 'cm-msg error'; return; }
+  if (!phrase) { el.textContent = 'Enter your 12 words.'; el.className = 'cm-msg error'; return; }
   const valid = (typeof CMBip39 !== 'undefined')
     ? await CMBip39.validateMnemonic(phrase)
     : (phrase.split(' ').length === 12);
-  if (!valid) { el.textContent = 'La frase no es válida (12 palabras BIP-39, en orden).'; el.className = 'cm-msg error'; return; }
+  if (!valid) { el.textContent = 'Invalid phrase (12 BIP-39 words, in order).'; el.className = 'cm-msg error'; return; }
   await new Promise(r => chrome.storage.local.set({ seedPhrase: phrase }, r));
   ta.value = '';
-  el.textContent = '🔒 Bóveda activada. Recargá la pestaña de tu IA para que tome efecto.';
+  el.textContent = '🔒 Vault activated. Reload your AI tab for it to take effect.';
   el.className = 'cm-msg success';
 }
 async function clearSeedPhrase() {
-  if (!confirm('Quitar la frase de este dispositivo.\n\nLas memorias que ya cifraste seguirán necesitando esta frase para leerse. Asegurate de tenerla anotada.')) return;
+  if (!confirm('Remove the phrase from this device.\n\nMemories you already encrypted will still need this phrase to be read. Make sure you have it written down.')) return;
   await new Promise(r => chrome.storage.local.remove(['seedPhrase'], r));
   const el = document.getElementById('seedMsg');
-  el.textContent = 'Bóveda desactivada. Las nuevas memorias se guardan en texto plano.';
+  el.textContent = 'Vault disabled. New memories will be stored in plain text.';
   el.className = 'cm-msg info';
 }
 
@@ -772,6 +785,8 @@ document.addEventListener('DOMContentLoaded', async () => { try { const _v = 'v'
   document.getElementById('disconnect').addEventListener('click', disconnect);
 
   // Boveda ciega
+  const _genSeedBtn = document.getElementById('genSeed');
+  if (_genSeedBtn) _genSeedBtn.addEventListener('click', generateSeedPhrase);
   const _saveSeedBtn = document.getElementById('saveSeed');
   if (_saveSeedBtn) _saveSeedBtn.addEventListener('click', saveSeedPhrase);
   const _clearSeedBtn = document.getElementById('clearSeed');
