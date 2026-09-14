@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.1.3 — popup.js
+// ChainMemory v3.2.0 — popup.js
 // Complete onboarding (auto-generate + manual paste) + tabs
 // v3.1.1: Project Brain has NO hardcoded default — user sets their own
 //         (prevents leaking the internal 'chainmemory' namespace)
@@ -652,6 +652,41 @@ async function disconnect() {
   await route();
 }
 
+// ── Boveda ciega: frase de 12 palabras (guardada SOLO en este dispositivo) ──
+async function refreshSeedStatus() {
+  const el = document.getElementById('seedMsg');
+  if (!el) return;
+  const data = await new Promise(r => chrome.storage.local.get(['seedPhrase'], r));
+  if (data.seedPhrase) {
+    el.textContent = '🔒 Bóveda activa — tus memorias se guardan cifradas.';
+    el.className = 'cm-msg success';
+  } else {
+    el.textContent = 'Bóveda inactiva — las memorias se guardan en texto plano.';
+    el.className = 'cm-msg info';
+  }
+}
+async function saveSeedPhrase() {
+  const ta = document.getElementById('seedPhrase');
+  const el = document.getElementById('seedMsg');
+  const phrase = (ta.value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!phrase) { el.textContent = 'Escribí tus 12 palabras.'; el.className = 'cm-msg error'; return; }
+  const valid = (typeof CMBip39 !== 'undefined')
+    ? await CMBip39.validateMnemonic(phrase)
+    : (phrase.split(' ').length === 12);
+  if (!valid) { el.textContent = 'La frase no es válida (12 palabras BIP-39, en orden).'; el.className = 'cm-msg error'; return; }
+  await new Promise(r => chrome.storage.local.set({ seedPhrase: phrase }, r));
+  ta.value = '';
+  el.textContent = '🔒 Bóveda activada. Recargá la pestaña de tu IA para que tome efecto.';
+  el.className = 'cm-msg success';
+}
+async function clearSeedPhrase() {
+  if (!confirm('Quitar la frase de este dispositivo.\n\nLas memorias que ya cifraste seguirán necesitando esta frase para leerse. Asegurate de tenerla anotada.')) return;
+  await new Promise(r => chrome.storage.local.remove(['seedPhrase'], r));
+  const el = document.getElementById('seedMsg');
+  el.textContent = 'Bóveda desactivada. Las nuevas memorias se guardan en texto plano.';
+  el.className = 'cm-msg info';
+}
+
 // ── Show current key ──
 async function showCurrentKey() {
   document.getElementById('currentKeyDisplay').textContent = state.apiKey || '--';
@@ -735,6 +770,13 @@ document.addEventListener('DOMContentLoaded', async () => { try { const _v = 'v'
   document.getElementById('viewKey').addEventListener('click', showCurrentKey);
   document.getElementById('claimAic').addEventListener('click', openFaucet);
   document.getElementById('disconnect').addEventListener('click', disconnect);
+
+  // Boveda ciega
+  const _saveSeedBtn = document.getElementById('saveSeed');
+  if (_saveSeedBtn) _saveSeedBtn.addEventListener('click', saveSeedPhrase);
+  const _clearSeedBtn = document.getElementById('clearSeed');
+  if (_clearSeedBtn) _clearSeedBtn.addEventListener('click', clearSeedPhrase);
+  refreshSeedStatus();
 
   // viewKey state
   document.getElementById('closeViewKey').addEventListener('click', () => showState('connected'));

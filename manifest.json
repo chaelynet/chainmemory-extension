@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChainMemory — Portable AI Memory",
   "short_name": "ChainMemory",
-  "version": "3.1.4",
+  "version": "3.2.0",
   "description": "Save and reuse your AI memory across ChatGPT, Claude, Gemini and Perplexity. Includes a wallet for AIC network credits.",
   "author": "ChainMemory Team",
   "homepage_url": "https://chainmemory.ai",
@@ -50,7 +50,7 @@
         "https://www.perplexity.ai/*",
         "https://perplexity.ai/*"
       ],
-      "js": ["content.js"],
+      "js": ["cm-wordlist.js", "cm-crypto.js", "cm-bip39.js", "cm-client.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }

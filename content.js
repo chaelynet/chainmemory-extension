@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.1.4 — content.js
+// ChainMemory v3.2.0 — content.js
 // Features:
 //   1. Save to ChainMemory button on each AI response (from v2.1.0)
 //   2. Retrospective scan of old messages (NEW)
@@ -168,7 +168,15 @@
         _state.filterProject = data.filterProject || '';
         _state.aiName = data.aiName || null;
         _state.projectBrainProject = data.projectBrainProject || '';
-        resolve();
+        // Boveda ciega: la frase vive en storage.local (NO se sincroniza a Google).
+        chrome.storage.local.get(['seedPhrase'], async local => {
+          _state.blindClient = null;
+          if (local.seedPhrase && typeof CMClient !== 'undefined') {
+            try { _state.blindClient = await CMClient.fromMnemonic(local.seedPhrase); }
+            catch (e) { console.warn('[ChainMemory] frase de boveda invalida:', e.message); }
+          }
+          resolve();
+        });
       });
     });
   }
@@ -374,12 +382,25 @@
       // enterarse. El costo real de guardar completo son centavos de AIC y se
       // muestra en el boton antes del clic.
       const summary = `[${_platform.name}] ${text}`;
-      const result = await api('POST', '/v1/memory', {
-        summary,
-        category: 'INTERACTION',
-        importance: 5,
-        platform: _platform.key
-      });
+      let result;
+      if (_state.blindClient) {
+        const sealed = await _state.blindClient.seal(summary);
+        result = await api('POST', '/v1/memory/sealed', {
+          blob_b64: sealed.blob_b64,
+          event_hash: sealed.event_hash,
+          plain_len: sealed.plain_len,
+          category: 'INTERACTION',
+          importance: 5,
+          platform: _platform.key
+        });
+      } else {
+        result = await api('POST', '/v1/memory', {
+          summary,
+          category: 'INTERACTION',
+          importance: 5,
+          platform: _platform.key
+        });
+      }
 
       // Save to local history for quick stats
       const local = await chromeGetLocal(['history']);
@@ -660,6 +681,16 @@
     try {
       const data = await api('GET', '/v1/memories/list?' + params);
       _state.memories = data.memories || [];
+      // Boveda ciega: descifrar en el cliente las memorias selladas para mostrarlas
+      // y para poder inyectarlas despues. El servidor nunca ve el texto.
+      if (_state.blindClient) {
+        for (const m of _state.memories) {
+          if (m.scheme === 'sealed' && m.content_blob) {
+            try { m.summary = await _state.blindClient.open(m.content_blob); }
+            catch (e) { m.summary = '[sellada — la frase no corresponde]'; }
+          }
+        }
+      }
       _state.selectedIds.clear();
 
       if (_state.memories.length === 0) {
@@ -814,6 +845,16 @@
         optimistic: true
       });
 
+      // Boveda ciega: descifrar en el cliente las memorias selladas que devolvio
+      // el servidor (viene el blob, no el texto), antes de armar la inyeccion.
+      if (_state.blindClient && result.memories) {
+        for (const m of result.memories) {
+          if (m.content_blob) {
+            try { m.summary = await _state.blindClient.open(m.content_blob); }
+            catch (e) { m.summary = '[sellada — la frase no corresponde]'; }
+          }
+        }
+      }
       const text = buildInjectText(result.memories);
 
       // Inject immediately

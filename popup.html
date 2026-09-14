@@ -13,7 +13,7 @@
     <div class="cm-brand">
       <span class="cm-logo">⛓</span>
       <span class="cm-brand-text">ChainMemory</span>
-      <span class="cm-version" id="cmVersion">v3.1.4</span>
+      <span class="cm-version" id="cmVersion">v3.2.0</span>
     </div>
     <div class="cm-net-status" id="netStatus">…</div>
   </header>
@@ -174,6 +174,18 @@
         <input type="text" id="pb-project" placeholder="my-project" class="cm-input">
       </label>
 
+      <h3 class="cm-section-title">BÓVEDA CIEGA (opcional)</h3>
+      <label class="cm-modal-field">
+        <span>Tus 12 palabras. Cifran tus memorias antes de salir; el servidor no puede leerlas. Se guardan solo en este dispositivo.</span>
+        <textarea id="seedPhrase" placeholder="palabra1 palabra2 ... palabra12" class="cm-input" rows="2"></textarea>
+      </label>
+      <div class="cm-btn-row">
+        <button class="cm-btn cm-btn-primary" id="saveSeed">Activar bóveda</button>
+        <button class="cm-btn cm-btn-ghost" id="clearSeed">Quitar</button>
+      </div>
+      <div class="cm-msg" id="seedMsg"></div>
+      <p class="cm-footer-info" style="margin-top:8px">Si perdés estas palabras, las memorias cifradas no se recuperan — ni vos ni nadie. Anotalas en papel.</p>
+
       <h3 class="cm-section-title">CONNECTION</h3>
       <div class="cm-conn-info">
         <div class="cm-conn-row">
@@ -192,7 +204,7 @@
       </div>
 
       <p class="cm-footer-info">
-        ChainMemory <span id="cmVersionFooter">v3.1.4</span> ·
+        ChainMemory <span id="cmVersionFooter">v3.2.0</span> ·
         <a href="https://chainmemory.ai" target="_blank">chainmemory.ai</a>
       </p>
     </div>
@@ -278,6 +290,10 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <div class="cm-toast" id="toast" style="display:none"></div>
 
+  <script src="cm-wordlist.js"></script>
+  <script src="cm-crypto.js"></script>
+  <script src="cm-bip39.js"></script>
+  <script src="cm-client.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
