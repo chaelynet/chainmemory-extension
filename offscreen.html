@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ChainMemory embedding</title></head>
+<body>
+<!--
+  Documento offscreen: no se ve nunca. Existe porque en Manifest V3 el service
+  worker no puede correr WebAssembly pesado, y hacerlo en la pagina del chat la
+  congelaria mientras calcula. Aca corre el modelo que convierte el texto en el
+  vector de busqueda, en la maquina del usuario.
+-->
+<script type="module" src="offscreen.js"></script>
+</body>
+</html>

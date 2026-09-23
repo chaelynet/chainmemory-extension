@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>ChainMemory — prueba del vector</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 860px; background: Canvas; color: CanvasText; }
+  pre { white-space: pre-wrap; font: 13px/1.5 ui-monospace, Consolas, monospace; padding: 12px; border: 1px solid GrayText; border-radius: 6px; }
+  .ok { color: #1a7f37; } .mal { color: #cf222e; }
+</style>
+</head>
+<body>
+<h1>Prueba del vector de búsqueda, dentro de la extensión</h1>
+<p>Recorre el camino real: esta página → service worker → documento offscreen → modelo → vector.
+   La primera vez baja unos 43&nbsp;MB y tarda; las siguientes, segundos.</p>
+<pre id="log">empezando…</pre>
+<script type="module" src="prueba-extension.js"></script>
+</body>
+</html>

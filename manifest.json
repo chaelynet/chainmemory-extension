@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChainMemory — Portable AI Memory",
   "short_name": "ChainMemory",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Save and reuse your AI memory across ChatGPT, Claude, Gemini and Perplexity. End-to-end encrypted with 12 words only you hold.",
   "author": "ChainMemory Team",
   "homepage_url": "https://chainmemory.ai",
@@ -25,7 +25,8 @@
 
   "permissions": [
     "storage",
-    "clipboardWrite"
+    "clipboardWrite",
+    "offscreen"
   ],
 
   "host_permissions": [
@@ -58,5 +59,8 @@
 
   "background": {
     "service_worker": "background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }

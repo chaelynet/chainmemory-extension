@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.2.0 — content.js
+// ChainMemory v3.3.0 — content.js
 // Features:
 //   1. Save to ChainMemory button on each AI response (from v2.1.0)
 //   2. Retrospective scan of old messages (NEW)
@@ -32,6 +32,16 @@
 //      instead of a bare HTTP 403.
 //  18. The version shown in the UI and in the console is read from the
 //      manifest, so it can no longer drift from the published version.
+//
+// v3.3.0:
+//  19. Memories are ALWAYS saved sealed. The plain-text path is gone: with no
+//      vault, saving is refused and the popup opens to set it up.
+//  20. Each sealed memory carries its search vector, computed on this device
+//      (offscreen document) — the server can find it without reading it.
+//      If the vector fails, the memory is still saved sealed, never in plain
+//      text, and the user is told it will not appear in search.
+//  21. Activating or removing the vault takes effect in open chat tabs at
+//      once, without reloading them.
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -181,6 +191,19 @@
     });
   }
 
+  // v3.3.0: si el usuario activa o quita la boveda desde el popup, esta pestana lo
+  // toma en el acto. Antes habia que recargar la pagina del chat, y hasta hacerlo
+  // la extension seguia guardando como antes.
+  chrome.storage.onChanged.addListener(async (cambios, area) => {
+    if (area !== 'local' || !cambios.seedPhrase) return;
+    const nueva = cambios.seedPhrase.newValue;
+    _state.blindClient = null;
+    if (nueva && typeof CMClient !== 'undefined') {
+      try { _state.blindClient = await CMClient.fromMnemonic(nueva); }
+      catch (e) { console.warn('[ChainMemory] frase de boveda invalida:', e.message); }
+    }
+  });
+
   // ── API ──
   async function api(method, path, body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -195,6 +218,26 @@
       throw err;
     }
     return data;
+  }
+
+  // ── Vector de busqueda (v3.3.0) ──
+  // Lo calcula el documento offscreen de la extension, en esta maquina: al
+  // servidor viaja el vector, nunca el texto. Si no llega a tiempo o falla,
+  // devuelve null y la memoria se guarda igual, sellada y sin vector. Nunca se
+  // pierde una memoria por esto, y nunca se cae a texto plano.
+  const VECTOR_TIMEOUT_MS = 20000;
+  async function pedirVector(texto) {
+    try {
+      const r = await Promise.race([
+        chrome.runtime.sendMessage({ action: 'cm-embed', text: texto }),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: 'timeout' }), VECTOR_TIMEOUT_MS))
+      ]);
+      if (r && r.ok && Array.isArray(r.vector) && r.vector.length === 384) return r.vector;
+      console.warn('[ChainMemory] sin vector de busqueda:', r && r.error);
+    } catch (e) {
+      console.warn('[ChainMemory] sin vector de busqueda:', e.message);
+    }
+    return null;
   }
 
   // ── Toast ──
@@ -343,6 +386,13 @@
       chrome.runtime.sendMessage({ action: 'openPopup' });
       return;
     }
+    // v3.3.0: sin boveda no se guarda. Antes se guardaba en texto plano, que el
+    // servidor puede leer; ese camino ya no existe en la extension.
+    if (!_state.blindClient) {
+      toast('Activate your vault (12 words) to save memories — they are encrypted before leaving this browser.', 'warn');
+      chrome.runtime.sendMessage({ action: 'openPopup' });
+      return;
+    }
     const text = extractResponseText(responseEl);
     if (!text || text.length < 10) {
       toast('Response too short', 'warn');
@@ -382,25 +432,24 @@
       // enterarse. El costo real de guardar completo son centavos de AIC y se
       // muestra en el boton antes del clic.
       const summary = `[${_platform.name}] ${text}`;
-      let result;
-      if (_state.blindClient) {
-        const sealed = await _state.blindClient.seal(summary);
-        result = await api('POST', '/v1/memory/sealed', {
-          blob_b64: sealed.blob_b64,
-          event_hash: sealed.event_hash,
-          plain_len: sealed.plain_len,
-          category: 'INTERACTION',
-          importance: 5,
-          platform: _platform.key
-        });
-      } else {
-        result = await api('POST', '/v1/memory', {
-          summary,
-          category: 'INTERACTION',
-          importance: 5,
-          platform: _platform.key
-        });
-      }
+      // v3.3.0: solo se guarda sellado. Si la boveda se quito mientras tanto, se
+      // corta aca: no hay camino de vuelta al texto plano.
+      const boveda = _state.blindClient;
+      if (!boveda) throw new Error('vault is not active');
+      const sealed = await boveda.seal(summary);
+      const cuerpo = {
+        blob_b64: sealed.blob_b64,
+        event_hash: sealed.event_hash,
+        plain_len: sealed.plain_len,
+        category: 'INTERACTION',
+        importance: 5,
+        platform: _platform.key
+      };
+      // Con el vector, la memoria sellada se puede encontrar desde la busqueda
+      // (MCP, API) sin que el servidor lea el texto.
+      const vector = await pedirVector(summary);
+      if (vector) cuerpo.embedding = vector;
+      const result = await api('POST', '/v1/memory/sealed', cuerpo);
 
       // Save to local history for quick stats
       const local = await chromeGetLocal(['history']);
@@ -420,7 +469,12 @@
         </svg>
         <span>Saved #${result.memory_number ?? result.memory_id}</span>
       `;
-      toast(`✓ Saved #${result.memory_number ?? result.memory_id} · ${text.length.toLocaleString()} characters · ~${fmtAIC(estimateSaveCostAIC(text.length))} AIC`, 'success');
+      // Si se guardo sellada sin vector, el usuario tiene que saber que no la va a
+      // encontrar buscando: no es un error, pero tampoco es lo mismo.
+      // Sin vector la memoria no aparece en la busqueda, y no hay nada que se lo agregue
+      // despues: se dice asi, sin un "todavia" que prometa algo que no pasa.
+      const sinBusqueda = result.scheme === 'sealed' && result.searchable === false ? ' · encrypted, but it will not appear in search' : '';
+      toast(`✓ Saved #${result.memory_number ?? result.memory_id} · ${text.length.toLocaleString()} characters · ~${fmtAIC(estimateSaveCostAIC(text.length))} AIC${sinBusqueda}`, 'success');
     } catch (e) {
       btn.disabled = false;
       btn.innerHTML = orig;

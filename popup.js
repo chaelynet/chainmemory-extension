@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════
-// ChainMemory v3.2.0 — popup.js
+// ChainMemory v3.3.0 — popup.js
 // Complete onboarding (auto-generate + manual paste) + tabs
 // v3.1.1: Project Brain has NO hardcoded default — user sets their own
 //         (prevents leaking the internal 'chainmemory' namespace)
+// v3.3.0: the vault is required to save. New users go through the 12 words
+//         (generate + confirm three of them, or paste existing ones) and the
+//         search model is downloaded with visible progress. Existing users
+//         without a vault can still browse and inject, with a banner to set it up.
 // ═══════════════════════════════════════════════════════════════════
 
 const API_BASE = 'https://api.chainmemory.ai';
@@ -48,7 +52,7 @@ function saveConfigSync(updates) {
 
 // ── State machine ──
 function showState(name) {
-  ['noKey', 'pasteKey', 'keyCreated', 'connected', 'viewKey'].forEach(s => {
+  ['noKey', 'pasteKey', 'keyCreated', 'vault', 'connected', 'viewKey'].forEach(s => {
     const el = document.getElementById('state-' + s);
     if (!el) return;
     el.classList.toggle('hide', s !== name);
@@ -87,13 +91,21 @@ async function updateNetStatus() {
 
 // ── Routing ──
 async function route() {
-  if (state.apiKey) {
-    await loadConnected();
-    showState('connected');
-  } else {
-    showState('noKey');
-  }
+  if (!state.apiKey) { showState('noKey'); return; }
+  // v3.3.0: la boveda es obligatoria para guardar. Quien acaba de crear o pegar
+  // su clave pasa por las 12 palabras antes de entrar. Quien ya usaba la
+  // extension sin boveda entra igual —puede ver e inyectar lo que tiene—, pero
+  // ve el aviso y no puede guardar memorias nuevas hasta activarla.
+  const local = await localGet(['seedPhrase', 'vaultPending']);
+  if (!local.seedPhrase && local.vaultPending) { abrirPasoBoveda(); return; }
+  await loadConnected();
+  showState('connected');
+  document.getElementById('vaultBanner').classList.toggle('hide', !!local.seedPhrase);
 }
+
+function localGet(keys) { return new Promise(r => chrome.storage.local.get(keys, r)); }
+function localSet(obj) { return new Promise(r => chrome.storage.local.set(obj, r)); }
+function localRemove(keys) { return new Promise(r => chrome.storage.local.remove(keys, r)); }
 
 // ── Generate API Key automatically ──
 async function generateNewKey() {
@@ -116,6 +128,7 @@ async function generateNewKey() {
       apiKey: data.api_key,
       walletAddress: data.wallet
     });
+    await localSet({ vaultPending: true });   // v3.3.0: sigue el paso de las 12 palabras
     state.apiKey = data.api_key;
     state.wallet = data.wallet;
 
@@ -160,6 +173,9 @@ async function saveExistingKey() {
       apiKey: key,
       walletAddress: data.owner || null
     });
+    // v3.3.0: sigue el paso de las 12 palabras, salvo que este navegador ya las tenga.
+    const yaTiene = (await localGet(['seedPhrase'])).seedPhrase;
+    if (!yaTiene) await localSet({ vaultPending: true });
     state.apiKey = key;
     state.wallet = data.owner || null;
     msg('setupMsg', '✅ Connected!', 'success');
@@ -661,7 +677,7 @@ async function refreshSeedStatus() {
     el.textContent = '🔒 Vault active — your memories are stored encrypted.';
     el.className = 'cm-msg success';
   } else {
-    el.textContent = 'Vault inactive — memories are stored in plain text.';
+    el.textContent = 'Vault inactive — you cannot save new memories until you activate it.';
     el.className = 'cm-msg info';
   }
 }
@@ -688,16 +704,117 @@ async function saveSeedPhrase() {
     : (phrase.split(' ').length === 12);
   if (!valid) { el.textContent = 'Invalid phrase (12 BIP-39 words, in order).'; el.className = 'cm-msg error'; return; }
   await new Promise(r => chrome.storage.local.set({ seedPhrase: phrase }, r));
+  await localRemove(['vaultPending']);
   ta.value = '';
-  el.textContent = '🔒 Vault activated. Reload your AI tab for it to take effect.';
+  el.textContent = '🔒 Vault activated.';
   el.className = 'cm-msg success';
+  const banner = document.getElementById('vaultBanner');
+  if (banner) banner.classList.add('hide');
+  chrome.runtime.sendMessage({ action: 'cm-prepare' }).catch(() => {});   // deja el modelo listo
 }
 async function clearSeedPhrase() {
-  if (!confirm('Remove the phrase from this device.\n\nMemories you already encrypted will still need this phrase to be read. Make sure you have it written down.')) return;
+  if (!confirm('Remove the phrase from this device.\n\nWithout it you cannot save new memories, and the ones you already encrypted can only be read with these same 12 words. Make sure you have them written down.')) return;
   await new Promise(r => chrome.storage.local.remove(['seedPhrase'], r));
   const el = document.getElementById('seedMsg');
-  el.textContent = 'Vault disabled. New memories will be stored in plain text.';
+  el.textContent = 'Vault disabled. You cannot save new memories until you activate it again.';
   el.className = 'cm-msg info';
+  const banner = document.getElementById('vaultBanner');
+  if (banner) banner.classList.remove('hide');
+}
+
+// ── Paso de la boveda (v3.3.0) ──
+// La frase generada vive solo en esta variable mientras dura el paso: no se
+// guarda en ningun lado hasta que el usuario demuestra que la anoto.
+let fraseEnCurso = null;
+let preguntas = [];
+
+function vaultVista(nombre) {
+  ['vault-choose', 'vault-show', 'vault-check', 'vault-paste', 'vault-prepare'].forEach(id => {
+    document.getElementById(id).classList.toggle('hide', id !== nombre);
+  });
+  clearMsg('vaultMsg');
+}
+
+function abrirPasoBoveda() {
+  fraseEnCurso = null;
+  preguntas = [];
+  document.getElementById('vaultWritten').checked = false;
+  document.getElementById('vaultToCheck').disabled = true;
+  ['vaultAnsA', 'vaultAnsB', 'vaultAnsC', 'vaultPasted'].forEach(id => { document.getElementById(id).value = ''; });
+  vaultVista('vault-choose');
+  showState('vault');
+}
+
+async function vaultGenerar() {
+  if (typeof CMBip39 === 'undefined') { msg('vaultMsg', 'Cannot generate: the crypto module did not load.', 'error'); return; }
+  fraseEnCurso = await CMBip39.generateMnemonic();
+  const ol = document.getElementById('vaultWords');
+  ol.innerHTML = '';
+  fraseEnCurso.split(' ').forEach(w => { const li = document.createElement('li'); li.textContent = w; ol.appendChild(li); });
+  vaultVista('vault-show');
+}
+
+// Tres posiciones al azar, distintas, con el generador criptografico.
+function tresPosiciones() {
+  const elegidas = new Set();
+  const buf = new Uint32Array(1);
+  while (elegidas.size < 3) { crypto.getRandomValues(buf); elegidas.add(buf[0] % 12); }
+  return Array.from(elegidas).sort((a, b) => a - b);
+}
+
+function vaultIrAControl() {
+  preguntas = tresPosiciones();
+  ['A', 'B', 'C'].forEach((k, i) => {
+    document.getElementById('vaultAsk' + k).textContent = 'Word #' + (preguntas[i] + 1);
+    document.getElementById('vaultAns' + k).value = '';
+  });
+  vaultVista('vault-check');
+  document.getElementById('vaultAnsA').focus();
+}
+
+async function vaultConfirmar() {
+  const palabras = fraseEnCurso.split(' ');
+  const ok = ['A', 'B', 'C'].every((k, i) =>
+    document.getElementById('vaultAns' + k).value.trim().toLowerCase() === palabras[preguntas[i]]);
+  if (!ok) { msg('vaultMsg', "One or more words don't match. Check your paper and try again.", 'error'); return; }
+  await vaultActivar(fraseEnCurso);
+}
+
+async function vaultActivarPegada() {
+  const frase = (document.getElementById('vaultPasted').value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const valida = typeof CMBip39 !== 'undefined' && await CMBip39.validateMnemonic(frase);
+  if (!valida) { msg('vaultMsg', 'Those are not 12 valid words. Check the spelling and the order.', 'error'); return; }
+  await vaultActivar(frase);
+}
+
+// Guarda la frase en este dispositivo y deja listo el modelo de busqueda. Si el
+// modelo no se puede bajar ahora, la boveda queda activa igual: las memorias se
+// guardan cifradas, solo que sin vector hasta que el modelo este disponible.
+async function vaultActivar(frase) {
+  await localSet({ seedPhrase: frase });
+  await localRemove(['vaultPending']);
+  fraseEnCurso = null;
+  document.getElementById('vaultWords').innerHTML = '';
+  vaultVista('vault-prepare');
+
+  const barra = document.getElementById('vaultProgress');
+  const texto = document.getElementById('vaultProgressText');
+  const alProgreso = (m) => {
+    if (m && m.type === 'cm-embed-progress') { barra.style.width = m.progress + '%'; texto.textContent = m.progress + '%'; }
+  };
+  chrome.runtime.onMessage.addListener(alProgreso);
+  let r;
+  try { r = await chrome.runtime.sendMessage({ action: 'cm-prepare' }); }
+  catch (e) { r = { ok: false, error: e.message }; }
+  chrome.runtime.onMessage.removeListener(alProgreso);
+
+  if (r && r.ok) {
+    barra.style.width = '100%';
+    texto.textContent = 'Ready. Your memories are encrypted and searchable.';
+  } else {
+    texto.textContent = 'Search could not be prepared right now. Your memories will still be saved encrypted. It will retry the next time you save; memories saved before it works will not appear in search.';
+  }
+  document.getElementById('vaultDone').classList.remove('hide');
 }
 
 // ── Show current key ──
@@ -792,6 +909,20 @@ document.addEventListener('DOMContentLoaded', async () => { try { const _v = 'v'
   const _clearSeedBtn = document.getElementById('clearSeed');
   if (_clearSeedBtn) _clearSeedBtn.addEventListener('click', clearSeedPhrase);
   refreshSeedStatus();
+
+  // v3.3.0: paso de la boveda
+  document.getElementById('vaultGenerate').addEventListener('click', vaultGenerar);
+  document.getElementById('vaultHave').addEventListener('click', () => vaultVista('vault-paste'));
+  document.getElementById('vaultWritten').addEventListener('change', e => {
+    document.getElementById('vaultToCheck').disabled = !e.target.checked;
+  });
+  document.getElementById('vaultToCheck').addEventListener('click', vaultIrAControl);
+  document.getElementById('vaultBackToShow').addEventListener('click', () => vaultVista('vault-show'));
+  document.getElementById('vaultConfirm').addEventListener('click', vaultConfirmar);
+  document.getElementById('vaultBackToChoose').addEventListener('click', () => vaultVista('vault-choose'));
+  document.getElementById('vaultActivatePasted').addEventListener('click', vaultActivarPegada);
+  document.getElementById('vaultDone').addEventListener('click', route);
+  document.getElementById('vaultBannerBtn').addEventListener('click', abrirPasoBoveda);
 
   // viewKey state
   document.getElementById('closeViewKey').addEventListener('click', () => showState('connected'));
