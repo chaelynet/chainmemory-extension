@@ -57,5 +57,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, responder) => {
                 (e) => responder({ ok: false, error: String(e.message || e) }));
         return true;
     }
+    // Informa a que servidores fue este documento a buscar algo. Solo lectura: lo
+    // usa la prueba de la extension para comprobar que el modelo sale de
+    // ChainMemory y que nada va a un tercero. Devuelve origenes, no rutas.
+    if (msg.action === "cm-audit") {
+        const origenes = performance.getEntriesByType("resource")
+            .map((e) => { try { return new URL(e.name).origin; } catch (_) { return e.name; } });
+        responder({ ok: true, origenes: [...new Set(origenes)] });
+        return false;
+    }
     return false;
 });

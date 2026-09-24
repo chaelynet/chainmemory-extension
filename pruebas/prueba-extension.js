@@ -57,6 +57,18 @@ chrome.runtime.onMessage.addListener((m) => {
 
     const vacio = await chrome.runtime.sendMessage({ action: "cm-embed", text: "" });
     log(`texto vacio: ${vacio && vacio.ok ? "vector de " + vacio.vector.length : "FALLO"}`, vacio && vacio.ok ? "ok" : "mal");
+
+    // ¿De donde salio el modelo? Lo informa el offscreen, que es quien descarga.
+    // Si el modelo ya estaba en la cache del navegador no hay descarga que ver:
+    // en ese caso lo unico que se puede exigir es que no haya ido a un tercero.
+    const aud = await chrome.runtime.sendMessage({ target: "offscreen", action: "cm-audit" });
+    const origenes = (aud && aud.origenes) || [];
+    const terceros = origenes.filter(o => !o.startsWith("chrome-extension://") && o !== "https://models.chainmemory.ai");
+    const deChainMemory = origenes.includes("https://models.chainmemory.ai");
+    log(`servidores a los que fue el offscreen: ${origenes.length ? origenes.join(", ") : "ninguno (todo desde la cache)"}`);
+    log(`  el modelo vino de models.chainmemory.ai: ${deChainMemory ? "SI" : "no hubo descarga (cache)"}`, deChainMemory ? "ok" : null);
+    log(`  pedidos a terceros: ${terceros.length ? terceros.join(", ") : "NINGUNO"}`, terceros.length ? "mal" : "ok");
+    if (terceros.length) fallas.push("el offscreen fue a un tercero: " + terceros.join(", "));
   } catch (e) {
     fallas.push(String(e && e.stack || e));
   }
