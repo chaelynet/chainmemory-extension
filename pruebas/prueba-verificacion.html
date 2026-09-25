@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba verificacion del modelo</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: Canvas; color: CanvasText; }
+  pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+<h1>El modelo se verifica contra el hash anclado</h1>
+<pre id="log">cargando…</pre>
+<script type="module">
+// Mismo codigo que la extension (cm-embed-local.js), como pagina comun. Dos pasos,
+// con la cache de modelos vaciada antes:
+//   1. el servidor "entrega" el .onnx con un byte cambiado: tiene que rechazarse y
+//      no quedar nada del .onnx en la cache;
+//   2. descarga normal desde models.chainmemory.ai: tiene que cargar y dar los
+//      mismos vectores que el servidor.
+import * as T from "../vendor/transformers.min.js";
+import { crearEmbedderLocal } from "../cm-embed-local.js";
+
+const logEl = document.getElementById("log");
+const L = []; const log = (s) => { L.push(s); logEl.textContent = L.join("\n"); };
+const cos = (a, b) => { let n=0, na=0, nb=0; for (let i=0;i<a.length;i++){n+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i];} return n/(Math.sqrt(na)*Math.sqrt(nb)||1); };
+const vendor = new URL("../vendor/", location.href).href;
+const enCache = async () => { const c = await caches.open("transformers-cache"); return (await c.keys()).map((r) => r.url.split("/v1/")[1] || r.url); };
+
+window.__r = { estado: "corriendo" };
+const fallas = [];
+const fetchReal = globalThis.fetch;
+try {
+  await caches.delete("transformers-cache");
+  log(`cache vaciada: ${JSON.stringify(await enCache())}`);
+
+  // ── 1. modelo alterado ──────────────────────────────────────────────────
+  globalThis.fetch = async (u, init) => {
+    const r = await fetchReal(u, init);
+    const url = String(u?.url ?? u);
+    if (url.endsWith("model_fp16.onnx") && r.status === 200) {
+      const b = new Uint8Array(await r.arrayBuffer()); b[b.length >> 1] ^= 1;
+      return new Response(b, { status: 200, headers: r.headers });
+    }
+    return r;
+  };
+  let rechazo = null;
+  try { await crearEmbedderLocal(T, vendor, { dtype: "fp16" }); } catch (e) { rechazo = String(e.message || e); }
+  globalThis.fetch = fetchReal;
+  const cache1 = await enCache();
+  log(`\n1. .onnx con un byte cambiado: ${rechazo ? "RECHAZADO -> " + rechazo : "ACEPTADO (MAL)"}`);
+  log(`   en la cache despues: ${JSON.stringify(cache1)}`);
+  if (!rechazo || !rechazo.includes("no coincide con el hash")) fallas.push("el modelo alterado no se rechazo");
+  if (cache1.some((f) => f.endsWith(".onnx"))) fallas.push("el .onnx alterado quedo en la cache");
+
+  // ── 2. descarga normal ──────────────────────────────────────────────────
+  const avances = [];
+  const t0 = performance.now();
+  const emb = await crearEmbedderLocal(T, vendor, { dtype: "fp16", progress_callback: (p) => avances.push(p) });
+  log(`\n2. descarga normal: modelo listo en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  const onnx = avances.filter((p) => p.status === "progress" && p.file && p.file.endsWith(".onnx"));
+  const retrocede = onnx.some((p, i) => i && p.progress < onnx[i - 1].progress);
+  log(`   avisos de avance del .onnx: ${onnx.length}, ultimo ${onnx.length ? Math.round(onnx.at(-1).progress) : "-"}%, retrocede: ${retrocede ? "SI (MAL)" : "no"}`);
+  if (!onnx.length || Math.round(onnx.at(-1).progress) !== 100 || retrocede) fallas.push("el avance de la descarga no es correcto");
+  const cache2 = await enCache();
+  log(`   en la cache despues: ${JSON.stringify(cache2)}`);
+  if (!cache2.some((f) => f.endsWith("model_fp16.onnx"))) fallas.push("el modelo bueno no quedo en la cache");
+
+  const ref = (await (await fetch("referencia.json")).json()).casos;
+  const sims = [];
+  for (const c of ref) sims.push(cos(await emb.embed(c.texto), c.vector));
+  sims.sort((a, b) => a - b);
+  log(`   ${sims.length} textos contra el vector del servidor: peor coseno ${sims[0].toFixed(6)}`);
+  if (sims[0] < 0.9999) fallas.push(`peor coseno ${sims[0]}`);
+
+  const origenes = [...new Set(performance.getEntriesByType("resource").map((e) => new URL(e.name).origin))];
+  const terceros = origenes.filter((o) => o !== location.origin && o !== "https://models.chainmemory.ai");
+  log(`\nservidores usados: ${origenes.join(", ")}`);
+  log(`pedidos a terceros: ${terceros.length ? terceros.join(", ") : "NINGUNO"}`);
+  if (terceros.length) fallas.push("pedidos a terceros: " + terceros.join(", "));
+
+  log(fallas.length ? `\nFALLAS:\n  - ${fallas.join("\n  - ")}` : "\nOK: el alterado se rechaza y no se guarda; el bueno carga y da los mismos vectores.");
+  window.__r = { estado: fallas.length ? "fallas" : "ok", fallas, peor: sims[0], rechazo, cache1, cache2, avisos: onnx.length };
+} catch (e) {
+  globalThis.fetch = fetchReal;
+  window.__r = { estado: "error", error: String(e && e.stack || e) };
+  log("ERROR: " + (e && e.stack || e));
+}
+</script>
+</body>
+</html>

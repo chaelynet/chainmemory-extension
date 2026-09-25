@@ -23,6 +23,17 @@ chrome.runtime.onMessage.addListener((m) => {
   try {
     log(`extension ${chrome.runtime.getManifest().version}`);
 
+    // Se empieza de cero: sin el documento offscreen (que tendria el modelo en
+    // memoria) y sin la cache del modelo. Asi la prueba siempre baja los archivos
+    // y pasan por la verificacion de hashes, que es lo que se quiere probar.
+    // Esta pagina es de la extension: comparte la cache con el offscreen.
+    try {
+      const ctx = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
+      if (ctx.length) await chrome.offscreen.closeDocument();
+    } catch (_) {}
+    await caches.delete("transformers-cache");
+    log("empezando de cero: sin modelo en memoria ni en la cache");
+
     const t0 = performance.now();
     const p = await chrome.runtime.sendMessage({ action: "cm-prepare" });
     const seg = ((performance.now() - t0) / 1000).toFixed(1);
@@ -66,7 +77,24 @@ chrome.runtime.onMessage.addListener((m) => {
     const terceros = origenes.filter(o => !o.startsWith("chrome-extension://") && o !== "https://models.chainmemory.ai");
     const deChainMemory = origenes.includes("https://models.chainmemory.ai");
     log(`servidores a los que fue el offscreen: ${origenes.length ? origenes.join(", ") : "ninguno (todo desde la cache)"}`);
-    log(`  el modelo vino de models.chainmemory.ai: ${deChainMemory ? "SI" : "no hubo descarga (cache)"}`, deChainMemory ? "ok" : null);
+    log(`  el modelo vino de models.chainmemory.ai: ${deChainMemory ? "SI" : "NO"}`, deChainMemory ? "ok" : "mal");
+    if (!deChainMemory) fallas.push("no hubo descarga desde models.chainmemory.ai, asi que la verificacion no se ejercio");
+
+    // Lo que quedo en la cache tiene que ser exactamente lo verificado.
+    const { HASHES_MODELO } = await import("../cm-embed-local.js");
+    const cache = await caches.open("transformers-cache");
+    const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
+    let enCache = 0;
+    for (const req of await cache.keys()) {
+      const ruta = new URL(req.url).pathname.slice(1);
+      const esperado = HASHES_MODELO[ruta];
+      const h = hex(await crypto.subtle.digest("SHA-256", await (await cache.match(req)).arrayBuffer()));
+      if (!esperado || h !== esperado) fallas.push(`en la cache hay un archivo que no es el verificado: ${ruta}`);
+      else enCache++;
+    }
+    const total = Object.keys(HASHES_MODELO).length;
+    log(`  archivos del modelo en la cache con el hash anclado: ${enCache} de ${total}`, enCache === total ? "ok" : "mal");
+    if (enCache !== total) fallas.push("faltan archivos verificados en la cache");
     log(`  pedidos a terceros: ${terceros.length ? terceros.join(", ") : "NINGUNO"}`, terceros.length ? "mal" : "ok");
     if (terceros.length) fallas.push("el offscreen fue a un tercero: " + terceros.join(", "));
   } catch (e) {
