@@ -20,8 +20,9 @@ ARCHIVOS = [
     "popup.html", "popup.js", "popup.css",
     "offscreen.html", "offscreen.js",
     "cm-wordlist.js", "cm-crypto.js", "cm-bip39.js", "cm-client.js",
-    "cm-embed.js", "cm-embed-local.js",
-    "vendor/transformers.min.js", "vendor/ort-wasm-simd-threaded.mjs", "vendor/ort-wasm-simd-threaded.wasm",
+    "cm-embed-local.js",
+    "motor/motor.mjs", "motor/nucleo.mjs", "motor/ensamblador.mjs", "motor/onnx.mjs",
+    "motor/tokenizador.mjs", "motor/tablas-unicode.mjs",
     "icons/icon16.png", "icons/icon48.png", "icons/icon128.png",
 ]
 
@@ -41,11 +42,11 @@ for cs in m.get("content_scripts", []):
 for html in [f for f in ARCHIVOS if f.endswith(".html")]:
     t = io.open(html, encoding="utf-8").read()
     referidos.update(re.findall(r'(?:src|href)="([^":#?]+\.(?:js|css|png))"', t))
-for js in ["offscreen.js", "cm-embed-local.js"]:
+for js in ["offscreen.js", "cm-embed-local.js"] + [f for f in ARCHIVOS if f.startswith("motor/")]:
     t = io.open(js, encoding="utf-8").read()
     referidos.update(os.path.normpath(os.path.join(os.path.dirname(js), p)).replace("\\", "/")
                      for p in re.findall(r'from\s+"(\.{1,2}/[^"]+)"', t))
-referidos.update(["offscreen.html", "vendor/ort-wasm-simd-threaded.mjs", "vendor/ort-wasm-simd-threaded.wasm"])
+referidos.add("offscreen.html")
 sin_empaquetar = sorted(r for r in referidos if r not in ARCHIVOS)
 if sin_empaquetar:
     sys.exit("ABORTA: se cargan y no estan en la lista: " + ", ".join(sin_empaquetar))

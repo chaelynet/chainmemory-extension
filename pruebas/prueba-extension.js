@@ -31,7 +31,8 @@ chrome.runtime.onMessage.addListener((m) => {
       const ctx = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
       if (ctx.length) await chrome.offscreen.closeDocument();
     } catch (_) {}
-    await caches.delete("transformers-cache");
+    await caches.delete("transformers-cache");      // la de la version anterior
+    await caches.delete("chainmemory-modelo-v1");
     log("empezando de cero: sin modelo en memoria ni en la cache");
 
     const t0 = performance.now();
@@ -81,8 +82,8 @@ chrome.runtime.onMessage.addListener((m) => {
     if (!deChainMemory) fallas.push("no hubo descarga desde models.chainmemory.ai, asi que la verificacion no se ejercio");
 
     // Lo que quedo en la cache tiene que ser exactamente lo verificado.
-    const { HASHES_MODELO } = await import("../cm-embed-local.js");
-    const cache = await caches.open("transformers-cache");
+    const { HASHES_MODELO, CACHE_MODELO } = await import("../cm-embed-local.js");
+    const cache = await caches.open(CACHE_MODELO);
     const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
     let enCache = 0;
     for (const req of await cache.keys()) {

@@ -70,16 +70,19 @@ for (const ruta of Object.keys(HASHES_MODELO)) {
     const r = await f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/onnx/model.onnx");
     ok(r.status === 404 && pedidos.length === 0, "archivo fuera de la lista (model.onnx): 404 sin pedido");
     const r2 = await f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/constructor");
+    const r3 = await f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/config.json");
+    ok(r3.status === 404, "config.json (lo usaba transformers.js, el motor propio no): 404");
     ok(r2.status === 404, "nombre raro (constructor): 404");
 }
 
-// 5. sondeo de 1 byte: pasa, sin verificar (su contenido no se usa)
+// 5. ya no hay excepcion para el sondeo de 1 byte (era de transformers.js): un
+//    pedido con Range de un archivo de la lista se baja entero y se verifica igual
 {
     pedidos = [];
     const f = crearFetchVerificado(fetchFalso());
     const h = new Headers(); h.set("Range", "bytes=0-0");
-    const r = await f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/onnx/model_fp16.onnx", { method: "GET", headers: h, cache: "no-store" });
-    ok(r.status === 206 && pedidos.length === 1 && pedidos[0].rango === "bytes=0-0", "sondeo de 1 byte: pasa");
+    const e = await rechaza(f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/onnx/model_fp16.onnx", { method: "GET", headers: h }));
+    ok(e && e.includes("no coincide con el hash"), "pedido parcial (Range): no se acepta sin verificar");
 }
 
 // 6. archivos propios de la extension: pasan directo
@@ -93,7 +96,7 @@ for (const ruta of Object.keys(HASHES_MODELO)) {
 // 7. errores del servidor se devuelven como estan (transformers.js los maneja)
 {
     const f = crearFetchVerificado(async () => new Response(null, { status: 503 }));
-    const r = await f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/config.json");
+    const r = await f(MODELOS_BASE + "Xenova/all-MiniLM-L6-v2/v1/tokenizer.json");
     ok(r.status === 503, "error 503 del servidor: se devuelve tal cual");
 }
 

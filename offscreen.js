@@ -6,7 +6,8 @@
 // vector, pero no puede calcularlo: no tiene el texto. Lo calcula este documento,
 // con el mismo modelo que usa el servidor y el mismo corte en 256 tokens, asi que
 // el vector sale identico al que el servidor habria calculado (validado contra
-// 791 memorias reales). Lo que viaja es el vector, nunca el texto.
+// 837 memorias reales). Lo calcula el motor propio de ChainMemory (motor/), sin
+// codigo de terceros. Lo que viaja es el vector, nunca el texto.
 //
 // Recibe mensajes del service worker:
 //   { target: "offscreen", action: "cm-embed",   text }  -> { ok, vector }
@@ -14,7 +15,6 @@
 // y avisa el avance de la primera descarga con:
 //   { type: "cm-embed-progress", file, progress }
 // ─────────────────────────────────────────────────────────────────────────────
-import * as T from "./vendor/transformers.min.js";
 import { crearEmbedderLocal } from "./cm-embed-local.js";
 
 let listo = null;          // promesa del embedder: se crea una sola vez
@@ -29,7 +29,7 @@ function avisarProgreso(p) {
 
 function embedder() {
     if (!listo) {
-        listo = crearEmbedderLocal(T, chrome.runtime.getURL("vendor/"), { dtype: "fp16", progress_callback: avisarProgreso })
+        listo = crearEmbedderLocal({ progress_callback: avisarProgreso })
             .catch((e) => { listo = null; throw e; });   // si fallo, el proximo intento reintenta
     }
     return listo;
