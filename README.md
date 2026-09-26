@@ -164,6 +164,12 @@ The model download from `models.chainmemory.ai` needs no host permission: it is 
 - Faucet: https://faucet.chainmemory.ai
 - API docs: https://api.chainmemory.ai/llms.txt
 
+## Trademark
+
+CHAINMEMORY is a registered trademark in Argentina (INPI, class 42,
+resolution 3932170), held by the project's founder. The MIT license covers
+the code, not the ChainMemory name or logo.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
