@@ -49,7 +49,8 @@
 //  24. After the extension is reloaded, an open tab says "reload this tab"
 //      instead of saving a memory without its search vector and then
 //      reporting "Save failed" (which led to duplicate, unsearchable saves).
-//  25. The Save bar is full width under the answer on every site.
+//  25. The Save bar is full width under the answer on every site, aligned
+//      with the answer's text (Gemini's answer element has no width of its own).
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -381,14 +382,36 @@
     // v3.3.0: el boton "Save to ChainMemory" vive dentro de la respuesta y su
     // etiqueta se colaba en el texto guardado. Se oculta un instante para que
     // innerText no la cuente (innerText respeta display:none).
+    // Con 'important': content.css declara display:flex !important, que le gana
+    // a un display:none comun (asi fallo la primera version de esto).
     const botones = Array.from(el.querySelectorAll('.cm-save-btn'));
-    const antes = botones.map(b => b.style.display);
-    botones.forEach(b => { b.style.display = 'none'; });
+    botones.forEach(b => b.style.setProperty('display', 'none', 'important'));
     try {
       return (el.innerText || el.textContent || '').trim();
     } finally {
-      botones.forEach((b, i) => { b.style.display = antes[i]; });
+      botones.forEach(b => b.style.removeProperty('display'));
     }
+  }
+
+  // v3.3.0: la barra se alinea con el TEXTO de la respuesta. En la mayoria de los
+  // sitios ya coincide y no se toca nada. En Gemini la respuesta es un elemento
+  // sin ancho propio (message-content, ancho 0) y la barra tomaba el de un
+  // contenedor mucho mas ancho que la columna de texto. Se mide donde esta el
+  // texto (sin contar la barra) y se ajustan margen y ancho.
+  function alinearBarra(btn, responseEl) {
+    if (!btn || !responseEl || !btn.isConnected) return;
+    const rango = document.createRange();
+    btn.style.setProperty('display', 'none', 'important');
+    rango.selectNodeContents(responseEl);
+    const texto = rango.getBoundingClientRect();
+    btn.style.removeProperty('display');
+    if (!texto.width) return;
+    btn.style.removeProperty('margin-left');
+    btn.style.removeProperty('width');
+    const actual = btn.getBoundingClientRect();
+    if (Math.abs(actual.left - texto.left) <= 12 && Math.abs(actual.width - texto.width) <= 24) return;
+    btn.style.setProperty('margin-left', Math.round(texto.left - actual.left + 4) + 'px', 'important');
+    btn.style.setProperty('width', Math.round(texto.width - 8) + 'px', 'important');
   }
 
   function attachSaveButton(responseEl) {
@@ -415,6 +438,7 @@
       await handleSaveClick(btn, responseEl);
     });
     responseEl.appendChild(btn);
+    alinearBarra(btn, responseEl);
   }
 
   // Muestra largo y costo estimado en el propio boton, sin bloquear ni pedir
@@ -622,13 +646,15 @@
     // Borra cualquier boton que no sea nuestra instancia unica
     document.querySelectorAll('.cm-save-btn').forEach(b => { if (b !== _saveBtn) b.remove(); });
 
-    // Ya colocado en la ultima respuesta actual -> nada que hacer
-    if (_saveBtnResponse === last && last.contains(_saveBtn)) return;
+    // Ya colocado en la ultima respuesta actual -> solo realinear (la respuesta
+    // puede cambiar de ancho mientras el modelo escribe)
+    if (_saveBtnResponse === last && last.contains(_saveBtn)) { alinearBarra(_saveBtn, last); return; }
 
     // Cambio el target (nueva respuesta o nodo re-renderizado) -> mover + refrescar
     _saveBtnResponse = last;
     resetSaveButton();
     last.appendChild(_saveBtn);
+    alinearBarra(_saveBtn, last);
   }
 
   // Dispatcher: plataformas "ancho/re-render" -> uno-al-final; el resto -> por-respuesta.
@@ -637,6 +663,16 @@
     if (_platform.singleButtonAtEnd) ensureSingleSaveButton();
     else scanExistingResponses();
   }
+
+  // Al cambiar el tamano de la ventana cambia la columna de texto: se realinean.
+  let _alinearTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(_alinearTimer);
+    _alinearTimer = setTimeout(() => {
+      if (_platform && _platform.singleButtonAtEnd) alinearBarra(_saveBtn, _saveBtnResponse);
+      else document.querySelectorAll('.cm-save-btn').forEach(b => alinearBarra(b, b.parentElement));
+    }, 200);
+  });
 
   function startObserver() {
     if (_observer) return;

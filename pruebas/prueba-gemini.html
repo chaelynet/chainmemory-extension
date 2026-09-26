@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba Gemini</title>
+<link rel="stylesheet" href="../content.css">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  /* Copia de la estructura de Gemini (sept. 2026, segun el diagnostico de Silvio):
+     el contenedor mide 1065 px, message-content no tiene ancho propio y el texto
+     ocupa una columna mas angosta. */
+  .container { width: 1065px; }
+  .markdown { max-width: 700px; margin-left: 120px; }
+  #caso-contents message-content { display: contents; }
+  pre#log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<!--
+  Corre el content.js REAL sobre una copia de la estructura de Gemini. Abrir como
+  http://gemini.google.com.localhost:PUERTO/pruebas/prueba-gemini.html
+  Gemini usa "un boton al final": la barra va en la ULTIMA respuesta y tiene que
+  quedar alineada con el texto, no con el contenedor de 1065 px.
+-->
+<response-container><div class="response-container"><div class="presented-response-container"><div class="response-container-content"><div class="response-content">
+  <model-response-content><structured-content-container class="model-response-text"><div class="container">
+    <message-content id="message-content-1"><div class="markdown"><p>Primera respuesta de Gemini, de prueba.</p></div></message-content>
+  </div></structured-content-container></model-response-content>
+</div></div></div></div></response-container>
+<div id="caso-contents">
+<response-container><div class="response-container"><div class="presented-response-container"><div class="response-container-content"><div class="response-content">
+  <model-response-content><structured-content-container class="model-response-text"><div class="container">
+    <message-content id="message-content-2"><div class="markdown"><h3>Ultima respuesta</h3><p>Texto de la ultima respuesta de Gemini, que es donde tiene que ir la barra, alineada con esta columna de texto.</p><ul><li>un punto</li><li>otro punto</li></ul></div></message-content>
+  </div></structured-content-container></model-response-content>
+</div></div></div></div></response-container>
+</div>
+<div role="textbox" contenteditable="true" class="ql-editor" style="border:1px solid #999;min-height:40px;width:600px"></div>
+<pre id="log">corriendo…</pre>
+
+<script src="simulador-extension.js"></script>
+<script src="../cm-wordlist.js"></script>
+<script src="../cm-crypto.js"></script>
+<script src="../cm-bip39.js"></script>
+<script src="../cm-client.js"></script>
+<script src="../content.js"></script>
+<script>
+(async () => {
+  const L = []; const log = s => { L.push(s); document.getElementById("log").textContent = L.join("\n"); };
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  window.__r = { estado: "corriendo" };
+  const fallas = [];
+  try {
+    await esperar(2500);
+    const botones = [...document.querySelectorAll(".cm-save-btn")];
+    log(`barras: ${botones.length} (se espera 1, en la ultima respuesta)`);
+    if (botones.length !== 1) fallas.push(`se esperaba 1 barra, hay ${botones.length}`);
+    const b = botones[0];
+    const ultima = document.getElementById("message-content-2");
+    if (!ultima.contains(b)) fallas.push("la barra no esta en la ultima respuesta");
+    const texto = ultima.querySelector(".markdown").getBoundingClientRect();
+    const barra = b.getBoundingClientRect();
+    log(`texto: izquierda ${Math.round(texto.left)} ancho ${Math.round(texto.width)} | barra: izquierda ${Math.round(barra.left)} ancho ${Math.round(barra.width)}`);
+    const alineada = Math.abs(barra.left - texto.left) <= 8 && Math.abs(barra.width - texto.width) <= 12;
+    log(`alineada con el texto: ${alineada ? "SI" : "NO"}`);
+    if (!alineada) fallas.push("la barra no esta alineada con el texto");
+    // guardar desde Gemini: texto sin la etiqueta de la barra
+    window.__escrituras = [];
+    b.click(); await esperar(1500);
+    log(`guardar: ${window.__escrituras.length} escritura(s), con vector: ${window.__escrituras.map(x => x.conVector).join(",")}; barra: ${b.textContent.trim()}`);
+    if (window.__escrituras.length !== 1 || !window.__escrituras[0].conVector) fallas.push("no guardo bien");
+    // El texto que se guarda (el mismo que va al vector) no lleva la etiqueta de la barra.
+    const conEtiqueta = (window.__textosVector || []).filter(t => /Save to ChainMemory|Saved #|Save ·/.test(t));
+    log(`textos guardados: ${(window.__textosVector || []).length}, con la etiqueta de la barra: ${conEtiqueta.length}`);
+    if (!(window.__textosVector || []).length || conEtiqueta.length) fallas.push("el texto guardado incluye la etiqueta de la barra");
+    log(fallas.length ? `\nFALLAS: ${fallas.join("; ")}` : "\nOK: una barra, en la ultima respuesta, alineada con el texto, y guarda.");
+    window.__r = { estado: fallas.length ? "fallas" : "ok", fallas };
+  } catch (e) { window.__r = { estado: "error" }; log("ERROR: " + (e.stack || e)); }
+})();
+</script>
+</body>
+</html>

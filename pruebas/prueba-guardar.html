@@ -31,50 +31,7 @@
 </main>
 <pre id="log">corriendo…</pre>
 
-<script>
-// ── Chrome de mentira, con modos ──
-window.__modo = "normal";
-window.__errorContexto = () => new Error("Extension context invalidated.");
-const almacen = { sync: { apiKey: "aic_prueba", aiName: "prueba" },
-                  local: { seedPhrase: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" } };
-function area(nombre) {
-  return {
-    get(keys, cb) {
-      const ks = Array.isArray(keys) ? keys : [keys];
-      if (nombre === "local" && ks.includes("history") && window.__modo === "historial-falla") throw window.__errorContexto();
-      const out = {}; ks.forEach(k => { if (k in almacen[nombre]) out[k] = almacen[nombre][k]; });
-      setTimeout(() => cb(out), 0);
-    },
-    set(obj, cb) { Object.assign(almacen[nombre], obj); setTimeout(() => cb && cb(), 0); },
-  };
-}
-window.chrome = {
-  storage: { sync: area("sync"), local: area("local"), onChanged: { addListener() {} } },
-  runtime: {
-    get id() { return window.__modo === "sin-id" ? undefined : "simulado"; },
-    getManifest: () => ({ version: "3.3.0" }),
-    onMessage: { addListener() {} },
-    sendMessage(m) {
-      if (m && m.action === "cm-embed") {
-        if (window.__modo === "vector-invalido") throw window.__errorContexto();
-        return Promise.resolve({ ok: true, vector: new Array(384).fill(0.05) });
-      }
-      return Promise.resolve({ ok: true });
-    },
-  },
-};
-// ── API de ChainMemory de mentira ──
-window.__escrituras = [];
-const fetchReal = window.fetch.bind(window);
-window.fetch = async (url, opts = {}) => {
-  const u = String(url);
-  if (!u.startsWith("https://api.chainmemory.ai")) return fetchReal(url, opts);
-  const cuerpo = opts.body ? JSON.parse(opts.body) : null;
-  if ((opts.method || "GET") === "POST") window.__escrituras.push({ ruta: u.replace("https://api.chainmemory.ai", ""), conVector: !!(cuerpo && Array.isArray(cuerpo.embedding)) });
-  const n = window.__escrituras.length;
-  return new Response(JSON.stringify({ memory_number: 1000 + n, memory_id: n, scheme: "sealed", searchable: !!(cuerpo && cuerpo.embedding) }), { status: 200, headers: { "content-type": "application/json" } });
-};
-</script>
+<script src="simulador-extension.js"></script>
 <script src="../cm-wordlist.js"></script>
 <script src="../cm-crypto.js"></script>
 <script src="../cm-bip39.js"></script>
@@ -115,7 +72,10 @@ window.fetch = async (url, opts = {}) => {
       log(`\n${i + 1}. ${nombre}: ${ok ? "OK" : "MAL"}\n   escrituras en la API: ${w.length}${w.length ? " (con vector: " + w.map(x => x.conVector).join(",") + ")" : ""}\n   aviso: ${t}\n   boton: ${botones[i].textContent.trim()}`);
       if (!ok) fallas.push(`caso ${i + 1} (${nombre})`);
     }
-    // el texto guardado no lleva la etiqueta del boton: se comprueba con el vector pedido
+    // El texto que se guarda (el mismo que va al vector) no lleva la etiqueta de la barra.
+    const conEtiqueta = (window.__textosVector || []).filter(t => /Save to ChainMemory|Saved #|Save ·/.test(t));
+    log(`textos guardados: ${(window.__textosVector || []).length}, con la etiqueta de la barra: ${conEtiqueta.length}`);
+    if (!(window.__textosVector || []).length || conEtiqueta.length) fallas.push("el texto guardado incluye la etiqueta de la barra");
     log(fallas.length ? `\nFALLAS: ${fallas.join("; ")}` : "\nOK: los 4 casos se comportan como deben.");
     window.__r = { estado: fallas.length ? "fallas" : "ok", fallas };
   } catch (e) { window.__r = { estado: "error" }; log("ERROR: " + (e.stack || e)); }
