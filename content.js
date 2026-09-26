@@ -42,6 +42,10 @@
 //      text, and the user is told it will not appear in search.
 //  21. Activating or removing the vault takes effect in open chat tabs at
 //      once, without reloading them.
+//  22. ChatGPT rebuilt its page (Sept. 2026): new selectors for its text box
+//      and its answers. If a site renames its text box again, the extension
+//      falls back to the lowest visible editable box instead of only copying.
+//  23. The saved text no longer includes the "Save to ChainMemory" label.
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -92,11 +96,17 @@
     'chatgpt.com': {
       name: 'ChatGPT',
       key: 'chatgpt',
-      inputSelector: '#prompt-textarea, div#prompt-textarea[contenteditable="true"], textarea[data-id="root"]',
+      // v3.3.0: ChatGPT (sept. 2026) ya no tiene #prompt-textarea: la caja es un
+      // div role=textbox (con sesion) o textarea#mobile-composer-prompt (sin
+      // sesion). Los viejos quedan por si vuelven.
+      inputSelector: 'div[role="textbox"][contenteditable="true"], textarea#mobile-composer-prompt, #prompt-textarea, textarea[data-id="root"]',
       inputType: 'mixed',
+      // v3.3.0: ChatGPT saco data-message-author-role. Cada respuesta es un div
+      // data-markdown-text-style="assistant-message" dentro de un contenedor con
+      // data-chatgpt-selection-message-id, que es donde va el boton.
       responseSelectors: [
-        '[data-message-author-role="assistant"]',
-        'div[data-testid^="conversation-turn"][data-message-author-role="assistant"]'
+        '[data-chatgpt-selection-message-id]:has(> [data-markdown-text-style="assistant-message"])',
+        '[data-message-author-role="assistant"]'
       ]
     },
     'chat.openai.com': {
@@ -255,16 +265,30 @@
   }
 
   // ── Find input element ──
+  const esVisible = (el) => !!(el && el.offsetParent !== null && el.getClientRects().length);
+
   function findInput() {
     if (!_platform) return null;
     const selectors = _platform.inputSelector.split(',').map(s => s.trim());
     for (const sel of selectors) {
       try {
-        const el = document.querySelector(sel);
+        // v3.3.0: la primera VISIBLE. Los sitios dejan cajas ocultas (version
+        // movil, editores de mensajes viejos) que antes se tomaban por error.
+        const todas = Array.from(document.querySelectorAll(sel));
+        const el = todas.find(esVisible) || null;
         if (el) return el;
       } catch (e) {}
     }
-    return null;
+    // v3.3.0: respaldo. Si el sitio cambio sus nombres (paso con ChatGPT en
+    // sept. 2026), se usa la caja de texto editable visible mas abajo en la
+    // pantalla, que es donde esta la del chat. Se avisa en la consola para que
+    // se note que los selectores del sitio quedaron viejos.
+    const candidatas = Array.from(document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"], textarea'))
+      .filter(esVisible);
+    if (!candidatas.length) return null;
+    candidatas.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+    console.warn('[ChainMemory] los selectores de la caja de texto de ' + _platform.name + ' no coinciden; se usa la caja visible mas baja');
+    return candidatas[0];
   }
 
   // ── Inject text into chat input ──
@@ -330,7 +354,17 @@
 
   function extractResponseText(el) {
     if (!el) return '';
-    return (el.innerText || el.textContent || '').trim();
+    // v3.3.0: el boton "Save to ChainMemory" vive dentro de la respuesta y su
+    // etiqueta se colaba en el texto guardado. Se oculta un instante para que
+    // innerText no la cuente (innerText respeta display:none).
+    const botones = Array.from(el.querySelectorAll('.cm-save-btn'));
+    const antes = botones.map(b => b.style.display);
+    botones.forEach(b => { b.style.display = 'none'; });
+    try {
+      return (el.innerText || el.textContent || '').trim();
+    } finally {
+      botones.forEach((b, i) => { b.style.display = antes[i]; });
+    }
   }
 
   function attachSaveButton(responseEl) {
