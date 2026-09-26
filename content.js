@@ -46,6 +46,10 @@
 //      and its answers. If a site renames its text box again, the extension
 //      falls back to the lowest visible editable box instead of only copying.
 //  23. The saved text no longer includes the "Save to ChainMemory" label.
+//  24. After the extension is reloaded, an open tab says "reload this tab"
+//      instead of saving a memory without its search vector and then
+//      reporting "Save failed" (which led to duplicate, unsearchable saves).
+//  25. The Save bar is full width under the answer on every site.
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -245,9 +249,29 @@
       if (r && r.ok && Array.isArray(r.vector) && r.vector.length === 384) return r.vector;
       console.warn('[ChainMemory] sin vector de busqueda:', r && r.error);
     } catch (e) {
+      // v3.3.0: si la extension se recargo, NO se guarda sin vector: la memoria
+      // quedaria imposible de encontrar y el usuario veria un error igual. Se
+      // corta aca, antes de escribir nada (paso con las memorias #907 y #908).
+      if (ES_CONTEXTO_INVALIDO(e && e.message)) throw e;
       console.warn('[ChainMemory] sin vector de busqueda:', e.message);
     }
     return null;
+  }
+
+  // v3.3.0: cuando la extension se actualiza o se recarga, las pestanas abiertas
+  // quedan con el script viejo, que ya no puede hablar con la extension y falla
+  // con "Extension context invalidated". Se dice que hacer en vez del error crudo.
+  // Sin contexto (extension recargada con la pestana abierta) chrome.runtime.id
+  // desaparece: se comprueba antes de guardar para no hacer nada a medias.
+  function extensionViva() {
+    try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
+  }
+  const ES_CONTEXTO_INVALIDO = (m) => /extension context invalidated/i.test(String(m || ''));
+
+  function mensajeError(e) {
+    const m = (e && e.message) || String(e);
+    if (/extension context invalidated/i.test(m)) return 'ChainMemory was updated — reload this tab (F5) to keep using it';
+    return m;
   }
 
   // ── Toast ──
@@ -415,6 +439,10 @@
   }
 
   async function handleSaveClick(btn, responseEl) {
+    if (!extensionViva()) {
+      toast(mensajeError(new Error('Extension context invalidated')), 'warn');
+      return;
+    }
     if (!_state.apiKey) {
       toast('Connect ChainMemory first', 'warn');
       chrome.runtime.sendMessage({ action: 'openPopup' });
@@ -485,16 +513,22 @@
       if (vector) cuerpo.embedding = vector;
       const result = await api('POST', '/v1/memory/sealed', cuerpo);
 
-      // Save to local history for quick stats
-      const local = await chromeGetLocal(['history']);
-      const history = local.history || [];
-      history.unshift({
-        timestamp: Date.now(),
-        platform: _platform.key,
-        memoryId: result.memory_id,
-        response: text.substring(0, 200)
-      });
-      await chromeSetLocal({ history: history.slice(0, 200) });
+      // Save to local history for quick stats. v3.3.0: la memoria YA esta
+      // guardada; si esto falla no se puede mostrar "Save failed", porque el
+      // usuario la guardaria de nuevo y quedaria duplicada.
+      try {
+        const local = await chromeGetLocal(['history']);
+        const history = local.history || [];
+        history.unshift({
+          timestamp: Date.now(),
+          platform: _platform.key,
+          memoryId: result.memory_id,
+          response: text.substring(0, 200)
+        });
+        await chromeSetLocal({ history: history.slice(0, 200) });
+      } catch (e) {
+        console.warn('[ChainMemory] memoria guardada, pero no se pudo anotar en el historial local:', e.message);
+      }
 
       btn.classList.add('cm-saved');
       btn.innerHTML = `
@@ -512,7 +546,7 @@
     } catch (e) {
       btn.disabled = false;
       btn.innerHTML = orig;
-      toast('Save failed: ' + e.message, 'error');
+      toast('Save failed: ' + mensajeError(e), 'error');
     }
   }
 
@@ -793,7 +827,7 @@
       }
       updatePanelFooter();
     } catch (e) {
-      list.innerHTML = `<div class="cm-pp-empty">Failed: ${escapeHtml(e.message)}</div>`;
+      list.innerHTML = `<div class="cm-pp-empty">Failed: ${escapeHtml(mensajeError(e))}</div>`;
     }
   }
 
@@ -866,7 +900,7 @@
       _state.selectedIds.delete(id);
       loadMemoriesIntoPanel();
     } catch (e) {
-      toast('Archive failed: ' + e.message, 'error');
+      toast('Archive failed: ' + mensajeError(e), 'error');
     }
   }
 
@@ -967,7 +1001,7 @@
         // Reload balance for next attempt
         await loadBalanceIntoPanel(panel);
       } else {
-        toast('Inject failed: ' + e.message, 'error');
+        toast('Inject failed: ' + mensajeError(e), 'error');
       }
       btn.disabled = false;
       btn.textContent = originalText;
@@ -1117,7 +1151,7 @@
     } catch (e) {
       if (e.status === 404) toast('No project state for "' + projectName + '" yet', 'warn');
       else if (e.status === 401) toast('Connect ChainMemory first', 'warn');
-      else toast('Failed to load project state: ' + e.message, 'error');
+      else toast('Failed to load project state: ' + mensajeError(e), 'error');
     } finally {
       btn.disabled = false;
       btn.textContent = orig;

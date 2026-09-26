@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba guardar</title>
+<link rel="stylesheet" href="../content.css">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  main { max-width: 760px; }
+  pre#log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<!--
+  Corre el content.js REAL sobre una copia de la estructura de ChatGPT (sept. 2026).
+  Abrir como http://chatgpt.com.localhost:PUERTO/pruebas/prueba-guardar.html para
+  que el script detecte ChatGPT. La API de Chrome y la de ChainMemory son de mentira:
+  no se guarda nada de verdad. Cuatro casos:
+    1. la pestana quedo vieja (extension recargada): no hay chrome.runtime.id
+    2. la extension se invalida justo al pedir el vector
+    3. se guardo, pero falla anotar el historial local
+    4. normal
+-->
+<main>
+  <div data-turn-key="u"><div data-chatgpt-selection-message-id="m-u"><div data-markdown-text-style="user-message"><p>pregunta</p></div></div></div>
+  <div data-turn-key="a1"><div data-chatgpt-selection-message-id="m-1"><div data-markdown-text-style="assistant-message"><p>Primera respuesta de prueba, suficientemente larga.</p></div></div></div>
+  <div data-turn-key="a2"><div data-chatgpt-selection-message-id="m-2"><div data-markdown-text-style="assistant-message"><p>Segunda respuesta de prueba, suficientemente larga.</p></div></div></div>
+  <div data-turn-key="a3"><div data-chatgpt-selection-message-id="m-3"><div data-markdown-text-style="assistant-message"><p>Tercera respuesta de prueba, suficientemente larga.</p></div></div></div>
+  <div data-turn-key="a4"><div data-chatgpt-selection-message-id="m-4"><div data-markdown-text-style="assistant-message"><p>Cuarta respuesta de prueba, suficientemente larga.</p></div></div></div>
+  <div role="textbox" contenteditable="true" style="border:1px solid #999;min-height:40px"></div>
+</main>
+<pre id="log">corriendo…</pre>
+
+<script>
+// ── Chrome de mentira, con modos ──
+window.__modo = "normal";
+window.__errorContexto = () => new Error("Extension context invalidated.");
+const almacen = { sync: { apiKey: "aic_prueba", aiName: "prueba" },
+                  local: { seedPhrase: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" } };
+function area(nombre) {
+  return {
+    get(keys, cb) {
+      const ks = Array.isArray(keys) ? keys : [keys];
+      if (nombre === "local" && ks.includes("history") && window.__modo === "historial-falla") throw window.__errorContexto();
+      const out = {}; ks.forEach(k => { if (k in almacen[nombre]) out[k] = almacen[nombre][k]; });
+      setTimeout(() => cb(out), 0);
+    },
+    set(obj, cb) { Object.assign(almacen[nombre], obj); setTimeout(() => cb && cb(), 0); },
+  };
+}
+window.chrome = {
+  storage: { sync: area("sync"), local: area("local"), onChanged: { addListener() {} } },
+  runtime: {
+    get id() { return window.__modo === "sin-id" ? undefined : "simulado"; },
+    getManifest: () => ({ version: "3.3.0" }),
+    onMessage: { addListener() {} },
+    sendMessage(m) {
+      if (m && m.action === "cm-embed") {
+        if (window.__modo === "vector-invalido") throw window.__errorContexto();
+        return Promise.resolve({ ok: true, vector: new Array(384).fill(0.05) });
+      }
+      return Promise.resolve({ ok: true });
+    },
+  },
+};
+// ── API de ChainMemory de mentira ──
+window.__escrituras = [];
+const fetchReal = window.fetch.bind(window);
+window.fetch = async (url, opts = {}) => {
+  const u = String(url);
+  if (!u.startsWith("https://api.chainmemory.ai")) return fetchReal(url, opts);
+  const cuerpo = opts.body ? JSON.parse(opts.body) : null;
+  if ((opts.method || "GET") === "POST") window.__escrituras.push({ ruta: u.replace("https://api.chainmemory.ai", ""), conVector: !!(cuerpo && Array.isArray(cuerpo.embedding)) });
+  const n = window.__escrituras.length;
+  return new Response(JSON.stringify({ memory_number: 1000 + n, memory_id: n, scheme: "sealed", searchable: !!(cuerpo && cuerpo.embedding) }), { status: 200, headers: { "content-type": "application/json" } });
+};
+</script>
+<script src="../cm-wordlist.js"></script>
+<script src="../cm-crypto.js"></script>
+<script src="../cm-bip39.js"></script>
+<script src="../cm-client.js"></script>
+<script src="../content.js"></script>
+<script>
+(async () => {
+  const L = []; const log = s => { L.push(s); document.getElementById("log").textContent = L.join("\n"); };
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  window.__r = { estado: "corriendo" };
+  const fallas = [];
+  // toasts que aparecen
+  const toasts = [];
+  new MutationObserver(() => { const t = document.querySelector(".cm-toast"); if (t && t.textContent && toasts.at(-1) !== t.textContent) toasts.push(t.textContent); })
+    .observe(document.body, { childList: true, subtree: true, characterData: true });
+  try {
+    await esperar(2500);                               // el script escanea a los 1.5 s
+    const botones = [...document.querySelectorAll(".cm-save-btn")];
+    log(`botones de guardar: ${botones.length} (se esperan 4: solo respuestas de la IA)`);
+    if (botones.length !== 4) fallas.push(`se esperaban 4 botones, hay ${botones.length}`);
+    const b0 = botones[0], padre = b0.parentElement;
+    log(`ancho de la barra: ${b0.offsetWidth}px de ${padre.clientWidth}px del contenedor`);
+    if (b0.offsetWidth < padre.clientWidth - 12) fallas.push("la barra no es ancha");
+
+    const casos = [
+      ["sin-id", "pestana vieja (sin chrome.runtime.id)", { escrituras: 0, toast: /reload this tab/i }],
+      ["vector-invalido", "se invalida al pedir el vector", { escrituras: 0, toast: /reload this tab/i }],
+      ["historial-falla", "guardada, pero falla el historial local", { escrituras: 1, conVector: true, toast: /^✓ Saved/ }],
+      ["normal", "normal", { escrituras: 1, conVector: true, toast: /^✓ Saved/ }],
+    ];
+    for (let i = 0; i < casos.length; i++) {
+      const [modo, nombre, esp] = casos[i];
+      window.__modo = modo; window.__escrituras = []; toasts.length = 0;
+      botones[i].click();
+      await esperar(1500);
+      const w = window.__escrituras, t = toasts.at(-1) || "(sin aviso)";
+      const ok = w.length === esp.escrituras && (esp.conVector === undefined || w.every(x => x.conVector)) && esp.toast.test(t);
+      log(`\n${i + 1}. ${nombre}: ${ok ? "OK" : "MAL"}\n   escrituras en la API: ${w.length}${w.length ? " (con vector: " + w.map(x => x.conVector).join(",") + ")" : ""}\n   aviso: ${t}\n   boton: ${botones[i].textContent.trim()}`);
+      if (!ok) fallas.push(`caso ${i + 1} (${nombre})`);
+    }
+    // el texto guardado no lleva la etiqueta del boton: se comprueba con el vector pedido
+    log(fallas.length ? `\nFALLAS: ${fallas.join("; ")}` : "\nOK: los 4 casos se comportan como deben.");
+    window.__r = { estado: fallas.length ? "fallas" : "ok", fallas };
+  } catch (e) { window.__r = { estado: "error" }; log("ERROR: " + (e.stack || e)); }
+})();
+</script>
+</body>
+</html>

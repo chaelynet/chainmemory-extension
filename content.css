@@ -4,8 +4,13 @@
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── Save button (per AI response) ── */
+/* v3.3.0: barra ancha debajo de la respuesta en TODOS los sitios. Antes el ancho
+   dependia del contenedor de cada sitio: ancha en ChatGPT y Claude, chica en
+   Perplexity y Gemini. */
 .cm-save-btn {
-  display: inline-flex !important;
+  display: flex !important;
+  width: calc(100% - 8px) !important;
+  box-sizing: border-box !important;
   align-items: center !important;
   gap: 6px !important;
   padding: 6px 12px !important;
