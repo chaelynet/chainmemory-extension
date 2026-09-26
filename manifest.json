@@ -3,7 +3,7 @@
   "name": "ChainMemory — Portable AI Memory",
   "short_name": "ChainMemory",
   "version": "3.3.0",
-  "description": "Save and reuse your AI memory across ChatGPT, Claude, Gemini and Perplexity. End-to-end encrypted with 12 words only you hold.",
+  "description": "Portable AI memory. Your memories are encrypted in your browser with 12 words only you hold — ChainMemory can't read them.",
   "author": "ChainMemory Team",
   "homepage_url": "https://chainmemory.ai",
 
