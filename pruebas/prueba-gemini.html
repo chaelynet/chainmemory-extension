@@ -10,7 +10,14 @@
      el contenedor mide 1065 px, message-content no tiene ancho propio y el texto
      ocupa una columna mas angosta. */
   .container { width: 1065px; }
-  .markdown { max-width: 700px; margin-left: 120px; }
+  /* Como en el Gemini real: el bloque del texto ocupa todo el contenedor y la
+     columna angosta la forman los margenes internos de cada parrafo. */
+  /* Dos formas posibles de armar la columna de texto (no se sabe cual usa el
+     Gemini real): ?variante=ancho -> parrafos con max-width 460 y margen 300;
+     ?variante=padding -> el bloque ocupa todo y la columna la forma el padding. */
+  html:not(.padding) .markdown { width: 100%; }
+  html:not(.padding) .markdown > * { width: 460px; box-sizing: border-box; margin-left: 300px; }
+  html.padding .markdown { width: 100%; box-sizing: border-box; padding: 0 305px 0 300px; }
   #caso-contents message-content { display: contents; }
   pre#log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #f4f4f4; padding: 8px; }
 </style>
@@ -37,6 +44,20 @@
 <div role="textbox" contenteditable="true" class="ql-editor" style="border:1px solid #999;min-height:40px;width:600px"></div>
 <pre id="log">corriendo…</pre>
 
+<script>
+if (/variante=padding/.test(location.search)) document.documentElement.classList.add("padding");
+</script>
+<script>
+// Registro de cada cambio de estilo sobre la barra (para diagnosticar la alineacion).
+window.__estilos = [];
+for (const m of ["setProperty", "removeProperty"]) {
+  const orig = CSSStyleDeclaration.prototype[m];
+  CSSStyleDeclaration.prototype[m] = function (...a) {
+    if (a[0] !== "display") window.__estilos.push(`${Math.round(performance.now())}ms ${m}(${a.slice(0, 2).join(", ")})`);
+    return orig.apply(this, a);
+  };
+}
+</script>
 <script src="simulador-extension.js"></script>
 <script src="../cm-wordlist.js"></script>
 <script src="../cm-crypto.js"></script>
@@ -55,9 +76,27 @@
     log(`barras: ${botones.length} (se espera 1, en la ultima respuesta)`);
     if (botones.length !== 1) fallas.push(`se esperaba 1 barra, hay ${botones.length}`);
     const b = botones[0];
+    // Gemini sigue escribiendo: se agregan parrafos a la ultima respuesta, como
+    // durante la respuesta real, y la barra tiene que terminar alineada igual.
+    const md = document.querySelector("#message-content-2 .markdown");
+    for (let i = 0; i < 12; i++) { const p = document.createElement("p"); p.textContent = "Parrafo que llega mientras el modelo escribe, numero " + (i + 1) + "."; md.appendChild(p); await esperar(150); }
+    await esperar(1500);
+    // Varias mediciones despues de que la pagina queda quieta: tiene que estar
+    // alineada en todas, no solo en una.
+    const muestras = [];
+    for (let i = 0; i < 5; i++) { const r = b.getBoundingClientRect(); muestras.push(`${Math.round(r.left)}/${Math.round(r.width)}`); await esperar(200); }
+    log(`posicion de la barra ya quieta: ${muestras.join(" ")}`);
+    if (new Set(muestras).size !== 1) fallas.push("la barra se sigue moviendo con la pagina quieta");
     const ultima = document.getElementById("message-content-2");
     if (!ultima.contains(b)) fallas.push("la barra no esta en la ultima respuesta");
-    const texto = ultima.querySelector(".markdown").getBoundingClientRect();
+    // Referencia: la columna de texto = la caja del parrafo (460 px). Las lineas
+    // de un parrafo terminan en un borde derecho irregular, asi que el ancho se
+    // acepta entre el 85% y el 100% de la columna.
+    const pr = ultima.querySelector(".markdown > p"), prr = pr.getBoundingClientRect(), pcs = getComputedStyle(pr);
+    const col = ultima.querySelector(".markdown"), ccs = getComputedStyle(col), cr = col.getBoundingClientRect();
+    const texto = document.documentElement.classList.contains("padding")
+      ? { left: cr.left + parseFloat(ccs.paddingLeft), width: cr.width - parseFloat(ccs.paddingLeft) - parseFloat(ccs.paddingRight) }
+      : { left: prr.left, width: prr.width };
     const barra = b.getBoundingClientRect();
     log(`texto: izquierda ${Math.round(texto.left)} ancho ${Math.round(texto.width)} | barra: izquierda ${Math.round(barra.left)} ancho ${Math.round(barra.width)}`);
     const alineada = Math.abs(barra.left - texto.left) <= 8 && Math.abs(barra.width - texto.width) <= 12;

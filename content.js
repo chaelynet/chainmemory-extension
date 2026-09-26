@@ -398,20 +398,54 @@
   // sin ancho propio (message-content, ancho 0) y la barra tomaba el de un
   // contenedor mucho mas ancho que la columna de texto. Se mide donde esta el
   // texto (sin contar la barra) y se ajustan margen y ancho.
+  // La COLUMNA del contenido: la caja interna (sin padding ni borde) de los
+  // bloques que contienen el texto (parrafos, titulos, items), mas tablas,
+  // codigo e imagenes. No se usan las lineas de texto (una respuesta corta daria
+  // una barra corta) ni la caja de la respuesta entera (en Gemini ocupa todo el
+  // contenedor aunque el texto sea una columna angosta).
+  function medirContenido(responseEl) {
+    let izq = Infinity, der = -Infinity, n = 0;
+    const sumar = (l, r) => { if (r > l) { izq = Math.min(izq, l); der = Math.max(der, r); } };
+    const bloques = new Set();
+    const recorrido = document.createTreeWalker(responseEl, NodeFilter.SHOW_TEXT, {
+      acceptNode: (t) => (t.nodeValue.trim() && !(t.parentElement && t.parentElement.closest('.cm-save-btn')))
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+    });
+    for (let t = recorrido.nextNode(); t && n < 3000; t = recorrido.nextNode(), n++) {
+      let e = t.parentElement;
+      while (e && e !== responseEl && /^inline/.test(getComputedStyle(e).display)) e = e.parentElement;
+      if (e && e !== responseEl) bloques.add(e);
+    }
+    for (const e of bloques) {
+      const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+      if (!r.width || !r.height) continue;
+      sumar(r.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth),
+            r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth));
+    }
+    responseEl.querySelectorAll('pre, table, img, video, canvas').forEach(e => {
+      if (e.closest('.cm-save-btn')) return;
+      const r = e.getBoundingClientRect();
+      if (r.width && r.height) sumar(r.left, r.right);
+    });
+    return izq < der ? { left: izq, width: der - izq } : null;
+  }
+
   function alinearBarra(btn, responseEl) {
     if (!btn || !responseEl || !btn.isConnected) return;
-    const rango = document.createRange();
-    btn.style.setProperty('display', 'none', 'important');
-    rango.selectNodeContents(responseEl);
-    const texto = rango.getBoundingClientRect();
-    btn.style.removeProperty('display');
-    if (!texto.width) return;
+    const texto = medirContenido(responseEl);
+    if (!texto || !texto.width) return;
+    // Sin animacion mientras se mide: con una transicion activa, el navegador
+    // devuelve la posicion a mitad de camino y no la final.
+    btn.style.setProperty('transition', 'none', 'important');
     btn.style.removeProperty('margin-left');
     btn.style.removeProperty('width');
     const actual = btn.getBoundingClientRect();
-    if (Math.abs(actual.left - texto.left) <= 12 && Math.abs(actual.width - texto.width) <= 24) return;
-    btn.style.setProperty('margin-left', Math.round(texto.left - actual.left + 4) + 'px', 'important');
-    btn.style.setProperty('width', Math.round(texto.width - 8) + 'px', 'important');
+    if (Math.abs(actual.left - texto.left) > 12 || Math.abs(actual.width - texto.width) > 24) {
+      btn.style.setProperty('margin-left', Math.round(texto.left - actual.left + 4) + 'px', 'important');
+      btn.style.setProperty('width', Math.round(texto.width - 8) + 'px', 'important');
+    }
+    btn.getBoundingClientRect();                // aplica el ajuste antes de devolver la animacion
+    btn.style.removeProperty('transition');
   }
 
   function attachSaveButton(responseEl) {

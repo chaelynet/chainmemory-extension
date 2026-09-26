@@ -24,7 +24,9 @@
   font-weight: 500 !important;
   cursor: pointer !important;
   opacity: 0.75;
-  transition: all 0.2s !important;
+  /* v3.3.0: solo lo visual se anima. Con "all" se animaban tambien el margen y
+     el ancho, y la alineacion con el texto media la barra a mitad de camino. */
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s, background 0.2s !important;
   z-index: 9999 !important;
   box-shadow: 0 2px 8px rgba(127, 119, 221, 0.2) !important;
 }
