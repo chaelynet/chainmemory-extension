@@ -52,8 +52,13 @@ function pesosDelModelo(onnx) {
         if (m.dims[0] !== k || m.dims[1] !== nn) throw new Error(`${parte} capa ${capa}: ${m.dims} en vez de ${k},${nn}`);
         return m.datos;
     };
+    // La tabla de palabras (30522×384) queda en float16, como viene en el
+    // archivo: pasarla entera a float32 ocupaba 23 MB mas. Se convierte fila por
+    // fila al usarla, con la misma conversion exacta.
+    const tp = pesos.get("embeddings.word_embeddings.weight");
+    if (!tp) throw new Error("falta el peso embeddings.word_embeddings.weight");
     const p = {
-        palabras: f32("embeddings.word_embeddings.weight"),
+        palabras: tp.tipo === "float16" ? tp.datos : f32("embeddings.word_embeddings.weight"),
         posiciones: f32("embeddings.position_embeddings.weight"),
         tipos: f32("embeddings.token_type_embeddings.weight"),
         lnE: [f32("embeddings.LayerNorm.weight"), f32("embeddings.LayerNorm.bias")],
@@ -114,7 +119,11 @@ export async function crearMotor({ onnx, tokenizer }) {
         en(d.wo, H * H).set(c.o); en(d.bo, H).set(c.bo);
         en(d.wi, H * FF).set(c.i); en(d.bi, FF).set(c.bi);
         en(d.wo2, FF * H).set(c.o2); en(d.bo2, H).set(c.bo2);
+        // Ya estan en la memoria del nucleo: la copia en JavaScript sobraba (42 MB).
+        c.q = c.k = c.v = c.o = c.i = c.o2 = null;
     });
+    // float16 -> float32 por tabla (65536 valores, exacto): para la fila de cada token.
+    const F16 = P.palabras instanceof Uint16Array ? f16aF32(Uint16Array.from({ length: 65536 }, (_, i) => i)) : null;
     en(Z.cero, FF).fill(0);
 
     // LayerNorm sobre filas de 384, en el lugar; sumando antes "residuo" si viene.
@@ -143,7 +152,8 @@ export async function crearMotor({ onnx, tokenizer }) {
         x.fill(0);
         for (let t = 0; t < n; t++) {
             const pw = ids[t] * H, pp = t * H, o = t * H;
-            for (let j = 0; j < H; j++) x[o + j] = P.palabras[pw + j] + P.posiciones[pp + j] + P.tipos[j];
+            if (F16) for (let j = 0; j < H; j++) x[o + j] = F16[P.palabras[pw + j]] + P.posiciones[pp + j] + P.tipos[j];
+            else     for (let j = 0; j < H; j++) x[o + j] = P.palabras[pw + j] + P.posiciones[pp + j] + P.tipos[j];
         }
         layerNorm(Z.x, N, P.lnE);
 
