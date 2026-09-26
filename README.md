@@ -4,7 +4,8 @@ Browser extension for [ChainMemory](https://chainmemory.ai) — save and recall 
 
 ## What it does
 
-- **Save**: a "Save to ChainMemory" button appears on AI responses. One click writes the response to ChainMemory, where it is encrypted and anchored on the ChainMemory blockchain.
+- **Save**: a "Save to ChainMemory" bar appears under AI responses. One click encrypts the response **in your browser**, with a key derived from 12 words only you hold, and writes it to ChainMemory, where it is anchored on the ChainMemory blockchain. ChainMemory stores a blob it cannot read.
+- **Find what you sealed**: the search vector of each memory is computed on your device, by ChainMemory's own engine, and sent with the encrypted blob, so your memories can be found by meaning without the server ever reading them.
 - **Inject**: a floating "Inject memory" button opens a panel where you pick which memories to send into the current chat, giving the AI continuity with what you discussed on other platforms and other models.
 - **Inject project state**: if you keep a Project Brain, one click injects its consolidated state — vision, phase, current focus, decisions in force, open risks and priorities — together with its on-chain anchor.
 - **Verify**: every memory is anchored on-chain with its own `event_hash`. Anyone can verify a memory was not altered, without your API key and without seeing its content.
@@ -102,17 +103,23 @@ The injection is optimistic: the text arrives immediately and the on-chain payme
 ```
 chainmemory-extension/
 ├── manifest.json          # Chrome MV3 manifest
-├── background.js          # Service worker (opens faucet on install)
-├── content.js             # Save buttons, floating FAB, inject panel, project state
+├── background.js          # Service worker (faucet on install, offscreen document)
+├── content.js             # Save bar, floating FAB, inject panel, project state
 ├── content.css            # In-page UI styles
-├── popup.html             # Extension popup UI
-├── popup.js               # Popup logic (onboarding, memories, projects, settings)
-├── popup.css              # Popup styles
+├── popup.html / popup.js / popup.css   # Popup: onboarding, vault, memories, settings
+├── cm-wordlist.js, cm-bip39.js, cm-crypto.js, cm-client.js
+│                          # Blind vault: 12-word phrase, key derivation, AES-GCM sealing
+├── offscreen.html / offscreen.js       # Computes search vectors off the page
+├── cm-embed-local.js      # Downloads and verifies the model, runs the engine
+├── motor/                 # ChainMemory's own search engine (no third-party code):
+│                          #   tokenizer, ONNX reader, WebAssembly kernel and assembler
 └── icons/                 # 16/48/128 px brand icons
 ```
 
 ## Version history
 
+- **3.3.0** (September 2026) — **every memory is saved sealed**: the vault (12 words) is required to save, and the plain-text path is gone. **Sealed memories are searchable**: the extension computes each memory's search vector on your device with ChainMemory's own engine (tokenizer, model reader and WebAssembly kernel written by ChainMemory — the 14 MB of third-party inference code is gone and the package is 0.1 MB) and sends it with the encrypted blob. The 45 MB search model is downloaded once from `models.chainmemory.ai`, checked against its SHA-256 anchored on ChainMemory's chain, and checked again every time it is read from the cache. Works again with ChatGPT's redesigned page (inject and save); the Save bar is full width and aligned with the answer on every site; the saved text no longer includes the button's label; after an update, an open tab asks to be reloaded instead of saving a memory without its search vector.
+- **3.2.0** (September 2026) — blind vault: memories can be sealed in the browser with a 12-word BIP-39 phrase generated here, which ChainMemory never sees; the interface is in English.
 - **3.1.4** (August 2026) — accepts organization keys (`aicm_` member, `aicp_` project) alongside personal `aic_` keys, so a team member can use the extension with the key their administrator issued; a write refused by role now reports *"your role (viewer) cannot write"* instead of a bare HTTP 403; the version shown in the popup and in the console is read from the manifest, fixing a mismatch where 3.1.3 displayed itself as "v3.1.2".
 - **3.1.3** (July 2026) — removes the 1,500-character cut on saved responses; shows the estimated cost on the Save button before saving and the actual size after; corrects the injection fee shown to the user (it reported 0.001 AIC while the protocol charged 0.1); adds a technical ceiling derived from the chain's block gas limit, which warns instead of truncating; opens the memory panel with its API calls in parallel; response scanning is now linear instead of quadratic on long conversations.
 - **3.1.2** (July 2026) — manifest description now declares the AIC wallet, required by the Chrome Web Store; memory addressing migrated to per-key numbering.
@@ -132,9 +139,10 @@ chainmemory-extension/
 
 ## Privacy
 
-- Your API key is stored in `chrome.storage.sync`, which Chrome syncs across the browsers signed into your Google account. It is not stored by ChainMemory in your browser beyond that.
-- Memory content is encrypted before being written on-chain. The chain stores ciphertext and a hash; the plaintext is never public.
-- The extension talks to `api.chainmemory.ai`, and opens `faucet.chainmemory.ai` in a tab when you claim AIC.
+- **What is encrypted:** the text of every memory you save, in your browser, before it leaves. The key comes from your 12 words, which stay in this browser (`chrome.storage.local`, not synced) and are never sent to ChainMemory. Lose them and nobody, ChainMemory included, can open those memories.
+- **What is not encrypted,** because search and organization need it: the memory's tags, project, category, platform, dates and length, and its **search vector** — 384 numbers computed from the text. The vector cannot be turned back into the text, but it does reflect what the text is about.
+- Your API key is stored in `chrome.storage.sync`, which Chrome syncs across the browsers signed into your Google account.
+- The extension talks to `api.chainmemory.ai`, downloads the search model once from `models.chainmemory.ai`, and opens `faucet.chainmemory.ai` in a tab when you claim AIC.
 - No analytics, no telemetry, no ads.
 
 ## Permissions, and why
@@ -145,8 +153,10 @@ chainmemory-extension/
 | `clipboardWrite` | fallback when a platform's input box cannot be detected |
 | host access to the 4 AI platforms | inject the Save button and the memory panel into the page |
 | host access to `chainmemory.ai`, `api.chainmemory.ai`, `faucet.chainmemory.ai` | talk to the API and open the faucet |
+| `offscreen` (since 3.3.0) | compute a memory's search vector in a hidden extension document, so the text can be encrypted before it leaves the browser and still be found |
+| `wasm-unsafe-eval` in the extension's CSP (since 3.3.0) | the search engine is WebAssembly, generated when it starts from code packaged in the extension; Chrome requires this directive to run it. No remote code is loaded |
 
-Unchanged since 3.1.2 — 3.1.4 requests no new permissions.
+The model download from `models.chainmemory.ai` needs no host permission: it is public data served with CORS, not code.
 
 ## Links
 
