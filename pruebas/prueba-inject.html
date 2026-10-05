@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba inject project state</title>
+<link rel="stylesheet" href="../content.css">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  main { max-width: 760px; }
+  pre#log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<!--
+  Corre el content.js REAL (v3.3.1) sobre una copia de ChatGPT y prueba el boton
+  "Inject project state" contra una API de mentira. Abrir como
+  http://chatgpt.com.localhost:PUERTO/pruebas/prueba-inject.html
+  Casos: primera vez (sin since), segunda vez (since = la ultima inyectada), since
+  invalido (reintenta sin since), servidor sin la ruta (arma el texto aca), servidor
+  caido (arma el texto aca), proyecto sin estado (aviso, no recuerda version).
+-->
+<main>
+  <div data-turn-key="u"><div data-chatgpt-selection-message-id="m-u"><div data-markdown-text-style="user-message"><p>pregunta</p></div></div></div>
+  <div data-turn-key="a1"><div data-chatgpt-selection-message-id="m-1"><div data-markdown-text-style="assistant-message"><p>Respuesta de prueba, suficientemente larga.</p></div></div></div>
+  <div id="caja" role="textbox" contenteditable="true" style="border:1px solid #999;min-height:40px"></div>
+</main>
+<pre id="log">corriendo…</pre>
+
+<script src="simulador-extension.js"></script>
+<script>
+// API de mentira solo para esta prueba (reemplaza la del simulador)
+window.__pedidos = [];
+window.__modoApi = 'ok';
+window.fetch = async (url, opts = {}) => {
+  const u = String(url).replace('https://api.chainmemory.ai', '');
+  const r = (code, body) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } });
+  if (u.startsWith('/v1/project/') && u.includes('/inject')) {
+    window.__pedidos.push(u);
+    const since = (u.match(/[?&]since=(\d+)/) || [])[1];
+    if (window.__modoApi === 'ruta-404') return r(404, { error: 'Not found', method: 'GET', path: '/x' });
+    if (window.__modoApi === 'caido') return r(500, { error: 'boom' });
+    if (window.__modoApi === 'sin-estado') return r(404, { error: 'project state not found' });
+    if (window.__modoApi === 'since-400' && since) return r(400, { error: 'since must be a version between 1 and 3' });
+    return r(200, { project: 'chainmemory', version: 96, since: since ? Number(since) : 95, text: `TEXTO DEL SERVIDOR v96 desde ${since || 'v95 (por defecto)'}` });
+  }
+  if (u.startsWith('/v1/project/') && u.includes('/state')) {
+    window.__pedidos.push(u);
+    if (window.__modoApi === 'sin-estado') return r(404, { error: 'project state not found' });
+    return r(200, { project: 'chainmemory', version: 96, state_hash: '0x' + 'ab'.repeat(32), state: { current_focus: 'foco de prueba', constraints: [], decisions: [], risks: [], priorities: [] } });
+  }
+  return r(200, { memories: [], count: 0, total: 0 });   // listado del panel y otros
+};
+</script>
+<script src="../cm-wordlist.js"></script>
+<script src="../cm-crypto.js"></script>
+<script src="../cm-bip39.js"></script>
+<script src="../cm-client.js"></script>
+<script src="../content.js"></script>
+<script>
+(async () => {
+  const L = []; const log = s => { L.push(s); document.getElementById('log').textContent = L.join('\n'); };
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  const local = (k) => new Promise(res => chrome.storage.local.get([k], o => res(o[k])));
+  window.__r = { estado: 'corriendo' };
+  const fallas = [];
+  const toasts = [];
+  new MutationObserver(() => { const t = document.querySelector('.cm-toast'); if (t && t.textContent && toasts.at(-1) !== t.textContent) toasts.push(t.textContent); })
+    .observe(document.body, { childList: true, subtree: true, characterData: true });
+  await new Promise(res => chrome.storage.sync.set({ projectBrainProject: 'chainmemory' }, res));
+  try {
+    await esperar(2000);
+    const casos = [
+      // [modo api, nombre, pedidos esperados (regex en orden), texto esperado en la caja, version recordada]
+      ['ok', 'primera vez: sin since', [/\/inject\?budget=7000&lang=(es|en)$/], /TEXTO DEL SERVIDOR v96 desde v95/, 96],
+      ['ok', 'segunda vez: since = la ultima inyectada', [/&since=96$/], /desde 96/, 96],
+      ['since-400', 'since invalido: reintenta sin since', [/&since=96$/, /\/inject\?budget=7000&lang=(es|en)$/], /desde v95/, 96],
+      ['ruta-404', 'servidor sin la ruta: lo arma aca', [/\/inject/, /\/state$/], /\[ChainMemory · Project State: chainmemory v96\][\s\S]*foco de prueba/, 96],
+      ['caido', 'servidor caido (500): lo arma aca', [/\/inject/, /\/state$/], /\[ChainMemory · Project State: chainmemory v96\]/, 96],
+      ['sin-estado', 'proyecto sin estado: avisa y no inyecta', [/\/inject/], null, 96],
+    ];
+    for (const [modo, nombre, pedidosEsp, textoEsp, versionEsp] of casos) {
+      window.__modoApi = modo; window.__pedidos = []; toasts.length = 0;
+      const caja = document.getElementById('caja'); caja.textContent = '';
+      if (!document.querySelector('.cm-preview-panel')) { document.querySelector('.cm-inject-fab').click(); await esperar(800); }
+      const b = document.querySelector('.cm-pp-brain-btn');
+      if (!b) { fallas.push(`${nombre}: no aparecio el boton`); continue; }
+      b.click();
+      await esperar(900);
+      const p = window.__pedidos, texto = caja.textContent, t = toasts.at(-1) || '(sin aviso)', v = await local('injectSince:chainmemory');
+      const okPedidos = p.length === pedidosEsp.length && pedidosEsp.every((re, i) => re.test(p[i]));
+      const okTexto = textoEsp ? textoEsp.test(texto) : texto === '';
+      const okAviso = textoEsp ? /injected|copied/i.test(t) : /No project state/i.test(t);
+      const ok = okPedidos && okTexto && okAviso && v === versionEsp;
+      log(`\n${ok ? 'OK ' : 'MAL'} ${nombre}\n   pedidos: ${p.join(' | ') || '(ninguno)'}\n   caja: ${texto.slice(0, 80) || '(vacia)'}\n   aviso: ${t}\n   version recordada: ${v}`);
+      if (!ok) fallas.push(nombre);
+      const panel = document.querySelector('.cm-preview-panel'); if (panel) panel.querySelector('.cm-pp-close').click();
+      await esperar(200);
+    }
+    log(fallas.length ? `\nFALLAS: ${fallas.join('; ')}` : '\nOK: los 6 casos se comportan como deben.');
+    window.__r = { estado: fallas.length ? 'fallas' : 'ok', fallas };
+  } catch (e) { log('ERROR ' + e.message); window.__r = { estado: 'error', error: e.message }; }
+})();
+</script>
+</body>
+</html>

@@ -1197,6 +1197,35 @@
     return out;
   }
 
+  // v3.3.1: el texto lo arma el servidor (GET /v1/project/:name/inject), por relevancia
+  // y con presupuesto: riesgos, prioridades y decisiones recientes antes que el resto,
+  // y arriba "que cambio" desde la ultima version que este navegador inyecto de ese
+  // proyecto (se recuerda por proyecto en storage.local). Si el servidor no tiene la
+  // ruta o falla, el texto se arma aca como antes (formatProjectState): nunca queda
+  // sin inject. Un 401 o "project state not found" se tratan igual que antes.
+  async function textoProjectState(projectName) {
+    const clave = 'injectSince:' + projectName;
+    const guardada = (await chromeGetLocal([clave]))[clave];
+    const lang = String(navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+    const ruta = '/v1/project/' + encodeURIComponent(projectName) + '/inject?budget=' + MAX_INJECT_CHARS + '&lang=' + lang;
+    const pedir = (since) => api('GET', ruta + (since ? '&since=' + since : ''));
+    try {
+      let r;
+      try {
+        r = await pedir(Number.isInteger(guardada) && guardada > 0 ? guardada : null);
+      } catch (e) {
+        // since invalido (por ejemplo, el Brain se reinicio y tiene menos versiones): sin since
+        if (e.status === 400 && guardada) r = await pedir(null); else throw e;
+      }
+      if (r && typeof r.text === 'string' && r.text) return { text: r.text, version: r.version, clave };
+    } catch (e) {
+      if (e.status === 401 || (e.status === 404 && e.data && e.data.error === 'project state not found')) throw e;
+      console.warn('[ChainMemory] inject del servidor no disponible, se arma en el navegador:', e.message);
+    }
+    const data = await api('GET', '/v1/project/' + encodeURIComponent(projectName) + '/state');
+    return { text: formatProjectState(data, projectName), version: data.version, clave };
+  }
+
   async function handleInjectProjectState(btn) {
     const projectName = _state.projectBrainProject || '';
     if (!projectName) {
@@ -1208,8 +1237,7 @@
     btn.disabled = true;
     btn.textContent = 'Loading…';
     try {
-      const data = await api('GET', '/v1/project/' + encodeURIComponent(projectName) + '/state');
-      const text = formatProjectState(data, projectName);
+      const { text, version, clave } = await textoProjectState(projectName);
       const okInj = injectIntoInput(text);
       if (okInj) {
         toast('✓ Project state "' + projectName + '" injected (' + text.length + ' chars)', 'success');
@@ -1218,6 +1246,8 @@
         await navigator.clipboard.writeText(text);
         toast('Project state copied to clipboard', 'success');
       }
+      // recien con el texto entregado se recuerda la version: la proxima vez, "que cambio desde aca"
+      if (Number.isInteger(version)) await chromeSetLocal({ [clave]: version });
     } catch (e) {
       if (e.status === 404) toast('No project state for "' + projectName + '" yet', 'warn');
       else if (e.status === 401) toast('Connect ChainMemory first', 'warn');
