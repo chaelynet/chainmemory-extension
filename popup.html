@@ -235,6 +235,17 @@
         <input type="text" id="pb-project" placeholder="my-project" class="cm-input">
       </label>
 
+      <h3 class="cm-section-title">SENSITIVE DATA PIN (OPTIONAL)</h3>
+      <label class="cm-modal-field">
+        <span id="pin-status">With a PIN, "Include sensitive data" asks for it before anything goes out. Stored on this device only, as a salted hash; it never leaves this browser and cannot be recovered.</span>
+        <input type="password" id="pin-current" placeholder="Current PIN" class="cm-input" autocomplete="off" maxlength="32" hidden>
+        <input type="password" id="pin-new" placeholder="New PIN (4 to 32 characters)" class="cm-input" autocomplete="new-password" maxlength="32">
+      </label>
+      <div class="cm-btn-row">
+        <button type="button" id="pin-save" class="cm-btn">Save PIN</button>
+        <button type="button" id="pin-remove" class="cm-btn cm-btn-danger">Remove PIN</button>
+      </div>
+
       <h3 class="cm-section-title">BLIND VAULT</h3>
       <label class="cm-modal-field">
         <span>Your 12 words. They encrypt your memories before they leave this browser; the server cannot read them. Stored on this device only.</span>

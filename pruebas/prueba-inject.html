@@ -82,6 +82,8 @@ window.fetch = async (url, opts = {}) => {
       window.__modoApi = modo; window.__pedidos = []; toasts.length = 0;
       const caja = document.getElementById('caja'); caja.textContent = '';
       if (!document.querySelector('.cm-preview-panel')) { document.querySelector('.cm-inject-fab').click(); await esperar(800); }
+      // desde 3.3.2 el panel pide /state al abrirse para listar las tareas: se cuenta desde aca
+      window.__pedidos = [];
       const b = document.querySelector('.cm-pp-brain-btn');
       if (!b) { fallas.push(`${nombre}: no aparecio el boton`); continue; }
       b.click();

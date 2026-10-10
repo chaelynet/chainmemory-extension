@@ -469,10 +469,64 @@ function initTabs() {
   });
 }
 
+// ── PIN de datos sensibles (v3.3.2) ──
+// Hash PBKDF2-SHA256 con sal, en storage.local (no se sincroniza) y nunca se envia. Lo
+// verifica content.js antes de mandar datos sensibles. Cambiarlo o quitarlo pide el PIN
+// actual, con el mismo bloqueo de 5 intentos: si no, quitarlo seria la forma de saltearlo.
+const PIN_ITER = 200000, PIN_INTENTOS = 5, PIN_BLOQUEO_MS = 5 * 60 * 1000;
+async function hashPin(pin, saltB64, iter) {
+  const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, 256);
+  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+async function pinActualValido() {
+  const { fullPin, fullPinFails } = await localGet(['fullPin', 'fullPinFails']);
+  if (!fullPin) return true;
+  const f = fullPinFails || { n: 0, hasta: 0 };
+  if (f.hasta && Date.now() < f.hasta) { toast('Too many wrong PINs. Try again after ' + new Date(f.hasta).toLocaleTimeString(), 'error'); return false; }
+  const input = document.getElementById('pin-current');
+  const pin = input.value; input.value = '';
+  if (pin && await hashPin(pin, fullPin.salt, fullPin.iter) === fullPin.hash) { await localSet({ fullPinFails: { n: 0, hasta: 0 } }); return true; }
+  const n = (f.hasta && Date.now() >= f.hasta ? 0 : f.n) + 1;
+  if (n >= PIN_INTENTOS) { await localSet({ fullPinFails: { n: 0, hasta: Date.now() + PIN_BLOQUEO_MS } }); toast('Too many wrong PINs: locked for 5 minutes', 'error'); return false; }
+  await localSet({ fullPinFails: { n, hasta: 0 } });
+  toast('Wrong current PIN. ' + (PIN_INTENTOS - n) + ' attempts left', 'error');
+  return false;
+}
+async function refrescarEstadoPin() {
+  const { fullPin } = await localGet(['fullPin']);
+  const actual = document.getElementById('pin-current');
+  const quitar = document.getElementById('pin-remove');
+  const guardar = document.getElementById('pin-save');
+  if (actual) actual.hidden = !fullPin;
+  if (quitar) quitar.disabled = !fullPin;
+  if (guardar) guardar.textContent = fullPin ? 'Change PIN' : 'Save PIN';
+}
+async function guardarPin() {
+  const input = document.getElementById('pin-new');
+  const pin = input.value;
+  if (pin.length < 4 || pin.length > 32) { toast('The PIN must have 4 to 32 characters', 'error'); return; }
+  if (!await pinActualValido()) return;
+  input.value = '';
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const saltB64 = btoa(String.fromCharCode(...salt));
+  await localSet({ fullPin: { salt: saltB64, hash: await hashPin(pin, saltB64, PIN_ITER), iter: PIN_ITER }, fullPinFails: { n: 0, hasta: 0 } });
+  toast('PIN saved on this device', 'success');
+  refrescarEstadoPin();
+}
+async function quitarPin() {
+  if (!await pinActualValido()) return;
+  await localRemove(['fullPin', 'fullPinFails']);
+  toast('PIN removed', 'success');
+  refrescarEstadoPin();
+}
+
 // ── Settings ──
 async function loadSettings() {
   const pbInput = document.getElementById('pb-project');
   if (pbInput) pbInput.value = state.projectBrainProject || '';
+  refrescarEstadoPin();
   document.getElementById('conn-wallet').textContent = state.wallet || '--';
   document.getElementById('conn-apikey').textContent =
     state.apiKey ? state.apiKey.substring(0, 12) + '...' + state.apiKey.substring(state.apiKey.length - 4) : '--';
@@ -950,6 +1004,11 @@ document.addEventListener('DOMContentLoaded', async () => { try { const _v = 'v'
     state.projectBrainProject = v;
     saveConfigSync({ projectBrainProject: v });
   });
+  // settings — PIN de datos sensibles (v3.3.2)
+  const pinSave = document.getElementById('pin-save');
+  if (pinSave) pinSave.addEventListener('click', guardarPin);
+  const pinRemove = document.getElementById('pin-remove');
+  if (pinRemove) pinRemove.addEventListener('click', quitarPin);
   document.getElementById('btn-add-project').addEventListener('click', openNewProjectModal);
   document.getElementById('modal-project-cancel').addEventListener('click', closeProjectModal);
   document.getElementById('modal-project-save').addEventListener('click', saveProject);

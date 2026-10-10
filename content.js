@@ -221,7 +221,8 @@
 
   // ── API ──
   async function api(method, path, body = null) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    // x-cm-client: que cliente y en que sitio pidio; lo registra el nivel completo del Brain (3.3.2)
+    const opts = { method, headers: { 'Content-Type': 'application/json', 'x-cm-client': 'extension ' + chrome.runtime.getManifest().version + ' ' + location.hostname } };
     if (_state.apiKey) opts.headers['x-api-key'] = _state.apiKey;
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(API_BASE + path, opts);
@@ -776,8 +777,13 @@
         <button class="cm-pp-close" title="Close">×</button>
       </div>
       <div class="cm-pp-brain">
+        <select class="cm-pp-brain-task" title="What to inject from the project brain">
+          <option value="">Overview: what changed, risks, priorities</option>
+        </select>
         <button class="cm-pp-brain-btn" title="Inject the consolidated project state into this chat">⚡ Inject project state</button>
-        <span class="cm-pp-brain-hint">Loads the whole project brain</span>
+        <label class="cm-pp-check cm-pp-full-wrap" hidden title="Adds addresses, ports, server paths and security rules. You approve every line before it goes out.">
+          <input type="checkbox" class="cm-pp-full"> Include sensitive data
+        </label>
       </div>
       <div class="cm-pp-filters">
         <select class="cm-pp-filter-project">
@@ -807,6 +813,7 @@
     panel.querySelector('.cm-pp-cancel').addEventListener('click', closePanel);
     panel.querySelector('.cm-pp-inject').addEventListener('click', handleInjectClick);
     panel.querySelector('.cm-pp-brain-btn').addEventListener('click', e => handleInjectProjectState(e.currentTarget));
+    prepararBrainPanel(panel);
     panel.querySelector('.cm-pp-filter-project').addEventListener('change', e => {
       _state.filterProject = e.target.value;
       loadMemoriesIntoPanel();
@@ -1203,11 +1210,22 @@
   // proyecto (se recuerda por proyecto en storage.local). Si el servidor no tiene la
   // ruta o falla, el texto se arma aca como antes (formatProjectState): nunca queda
   // sin inject. Un 401 o "project state not found" se tratan igual que antes.
-  async function textoProjectState(projectName) {
+  // v3.3.2: opciones.task (una prioridad, pri_NNNN) pide lo necesario para trabajar en
+  // ella; opciones.completo pide el nivel completo (direcciones, puertos, rutas), que el
+  // servidor solo da a la clave del dueno y registra. En esos dos casos no hay plan B en
+  // el navegador: si el servidor no los sirve, se dice, no se inyecta otra cosa.
+  async function textoProjectState(projectName, opciones = {}) {
     const clave = 'injectSince:' + projectName;
     const guardada = (await chromeGetLocal([clave]))[clave];
     const lang = String(navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
     const ruta = '/v1/project/' + encodeURIComponent(projectName) + '/inject?budget=' + MAX_INJECT_CHARS + '&lang=' + lang;
+    if (opciones.task || opciones.completo) {
+      const r = await api('GET', ruta + (opciones.task ? '&task=' + encodeURIComponent(opciones.task) : '') + (opciones.completo ? '&level=full' : ''));
+      if (opciones.task && r.task !== opciones.task) throw new Error('this server does not serve task briefs yet');
+      if (opciones.completo && r.level !== 'full') throw new Error('this server does not serve the full level yet');
+      // la tarea no es una lectura del estado completo: no mueve la version recordada
+      return { text: r.text, version: r.version, clave: opciones.task ? null : clave, sensibles: Array.isArray(r.sensitive_lines) ? r.sensitive_lines : [] };
+    }
     const pedir = (since) => api('GET', ruta + (since ? '&since=' + since : ''));
     try {
       let r;
@@ -1217,13 +1235,112 @@
         // since invalido (por ejemplo, el Brain se reinicio y tiene menos versiones): sin since
         if (e.status === 400 && guardada) r = await pedir(null); else throw e;
       }
-      if (r && typeof r.text === 'string' && r.text) return { text: r.text, version: r.version, clave };
+      if (r && typeof r.text === 'string' && r.text) return { text: r.text, version: r.version, clave, sensibles: [] };
     } catch (e) {
       if (e.status === 401 || (e.status === 404 && e.data && e.data.error === 'project state not found')) throw e;
       console.warn('[ChainMemory] inject del servidor no disponible, se arma en el navegador:', e.message);
     }
     const data = await api('GET', '/v1/project/' + encodeURIComponent(projectName) + '/state');
-    return { text: formatProjectState(data, projectName), version: data.version, clave };
+    return { text: formatProjectState(data, projectName), version: data.version, clave, sensibles: [] };
+  }
+
+  // ── v3.3.2: selector de tarea y casilla de datos sensibles ──
+  // La casilla solo aparece con una clave personal (aic_): el servidor rechaza el nivel
+  // completo a las claves de miembro y de proyecto. Se arma apagada cada vez que se abre
+  // el panel; no se recuerda.
+  async function prepararBrainPanel(panel) {
+    const casilla = panel.querySelector('.cm-pp-full-wrap');
+    if (casilla && String(_state.apiKey || '').startsWith('aic_')) casilla.hidden = false;
+    const sel = panel.querySelector('.cm-pp-brain-task');
+    const projectName = _state.projectBrainProject || '';
+    if (!sel || !projectName) return;
+    try {
+      const data = await api('GET', '/v1/project/' + encodeURIComponent(projectName) + '/state');
+      const prios = ((data.state || {}).priorities || []).filter(p => (p.status || 'active') === 'active')
+        .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+      for (const p of prios) {
+        const o = document.createElement('option');
+        o.value = p.id;
+        const t = String(p.title || '').replace(/\s+/g, ' ');
+        o.textContent = 'Task ' + p.id + ' [' + (p.priority_score ?? '?') + ']: ' + (t.length > 60 ? t.slice(0, 59) + '…' : t);
+        sel.appendChild(o);
+      }
+    } catch (e) { /* sin estado o sin red: queda solo la vista general */ }
+  }
+
+  // ── v3.3.2: PIN opcional para aprobar datos sensibles ──
+  // Se guarda en Settings como hash PBKDF2 con sal, solo en este navegador
+  // (storage.local, no se sincroniza) y nunca se envia. Cinco intentos fallidos
+  // bloquean la aprobacion cinco minutos. Frena a quien use este navegador; no a quien
+  // controle la PC.
+  const PIN_INTENTOS = 5, PIN_BLOQUEO_MS = 5 * 60 * 1000;
+  async function hashPin(pin, saltB64, iter) {
+    const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, 256);
+    return btoa(String.fromCharCode(...new Uint8Array(bits)));
+  }
+  // { ok } | { ok:false, bloqueadoHasta } | { ok:false, quedan }
+  async function verificarPin(pin) {
+    const { fullPin, fullPinFails } = await chromeGetLocal(['fullPin', 'fullPinFails']);
+    if (!fullPin) return { ok: true };
+    const f = fullPinFails || { n: 0, hasta: 0 };
+    if (f.hasta && Date.now() < f.hasta) return { ok: false, bloqueadoHasta: f.hasta };
+    if (pin && await hashPin(pin, fullPin.salt, fullPin.iter) === fullPin.hash) {
+      await chromeSetLocal({ fullPinFails: { n: 0, hasta: 0 } });
+      return { ok: true };
+    }
+    const n = (f.hasta && Date.now() >= f.hasta ? 0 : f.n) + 1;
+    if (n >= PIN_INTENTOS) {
+      const hasta = Date.now() + PIN_BLOQUEO_MS;
+      await chromeSetLocal({ fullPinFails: { n: 0, hasta } });
+      return { ok: false, bloqueadoHasta: hasta };
+    }
+    await chromeSetLocal({ fullPinFails: { n, hasta: 0 } });
+    return { ok: false, quedan: PIN_INTENTOS - n };
+  }
+
+  // ── v3.3.2: aprobacion antes de mandar datos sensibles ──
+  // Muestra exactamente las lineas que el nivel publico reserva y el sitio que las va a
+  // recibir. Resuelve true solo con "Approve this time" (y el PIN, si hay).
+  async function pedirAprobacion(lineas, sitio) {
+    const { fullPin } = await chromeGetLocal(['fullPin']);
+    return new Promise(resolve => {
+      const fondo = document.createElement('div');
+      fondo.className = 'cm-approve-backdrop';
+      fondo.innerHTML = `
+        <div class="cm-approve" role="dialog" aria-modal="true" aria-labelledby="cm-approve-title">
+          <h3 id="cm-approve-title">Send sensitive data to <b>${escapeHtml(sitio)}</b>?</h3>
+          <p>These ${lineas.length} lines are withheld at the public level: addresses, ports, server paths and security rules. Once pasted, ${escapeHtml(sitio)} keeps them. ChainMemory logged this request.</p>
+          <pre class="cm-approve-lines">${lineas.map(escapeHtml).join('\n')}</pre>
+          ${fullPin ? '<label class="cm-approve-pin-label">PIN <input type="password" class="cm-approve-pin" autocomplete="off"></label>' : ''}
+          <div class="cm-approve-error" role="alert"></div>
+          <div class="cm-approve-buttons">
+            <button class="cm-approve-cancel">Cancel</button>
+            <button class="cm-approve-ok">Approve this time</button>
+          </div>
+        </div>`;
+      document.body.appendChild(fondo);
+      const terminar = (v) => { document.removeEventListener('keydown', alTeclado, true); fondo.remove(); resolve(v); };
+      const alTeclado = (e) => { if (e.key === 'Escape') { e.stopPropagation(); terminar(false); } };
+      document.addEventListener('keydown', alTeclado, true);
+      fondo.querySelector('.cm-approve-cancel').addEventListener('click', () => terminar(false));
+      const error = fondo.querySelector('.cm-approve-error');
+      const okBtn = fondo.querySelector('.cm-approve-ok');
+      okBtn.addEventListener('click', async () => {
+        if (!fullPin) return terminar(true);
+        okBtn.disabled = true;
+        const pinIn = fondo.querySelector('.cm-approve-pin');
+        const r = await verificarPin(pinIn.value);
+        pinIn.value = '';
+        if (r.ok) return terminar(true);
+        okBtn.disabled = false;
+        error.textContent = r.bloqueadoHasta
+          ? 'Too many wrong PINs. Approval is locked until ' + new Date(r.bloqueadoHasta).toLocaleTimeString() + '.'
+          : 'Wrong PIN. ' + r.quedan + ' attempt' + (r.quedan === 1 ? '' : 's') + ' left.';
+      });
+      (fondo.querySelector('.cm-approve-pin') || fondo.querySelector('.cm-approve-cancel')).focus();
+    });
   }
 
   async function handleInjectProjectState(btn) {
@@ -1233,11 +1350,21 @@
       chrome.runtime.sendMessage({ action: 'openPopup' });
       return;
     }
+    const panel = btn.closest('.cm-preview-panel');
+    const task = (panel && panel.querySelector('.cm-pp-brain-task') && panel.querySelector('.cm-pp-brain-task').value) || '';
+    const casilla = panel && panel.querySelector('.cm-pp-full');
+    const completo = !!(casilla && casilla.checked && !casilla.closest('.cm-pp-full-wrap').hidden);
     const orig = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Loading…';
     try {
-      const { text, version, clave } = await textoProjectState(projectName);
+      const { text, version, clave, sensibles } = await textoProjectState(projectName, { task, completo });
+      // datos sensibles: nada sale sin que el dueno vea las lineas y apruebe esta vez
+      if (completo && sensibles.length) {
+        const aprobado = await pedirAprobacion(sensibles, location.hostname);
+        if (casilla) casilla.checked = false;
+        if (!aprobado) { toast('Nothing was injected', 'warn'); return; }
+      }
       const okInj = injectIntoInput(text);
       if (okInj) {
         toast('✓ Project state "' + projectName + '" injected (' + text.length + ' chars)', 'success');
@@ -1247,9 +1374,12 @@
         toast('Project state copied to clipboard', 'success');
       }
       // recien con el texto entregado se recuerda la version: la proxima vez, "que cambio desde aca"
-      if (Number.isInteger(version)) await chromeSetLocal({ [clave]: version });
+      if (clave && Number.isInteger(version)) await chromeSetLocal({ [clave]: version });
     } catch (e) {
-      if (e.status === 404) toast('No project state for "' + projectName + '" yet', 'warn');
+      if (completo && e.status === 403) toast('Sensitive data needs the owner key: nothing was injected', 'warn');
+      else if (completo && e.status === 503) toast('Sensitive data is unavailable right now: nothing was injected', 'warn');
+      else if (task && e.status === 404 && e.data && /priority/.test(e.data.error || '')) toast('Task ' + task + ' no longer exists in "' + projectName + '"', 'warn');
+      else if (e.status === 404) toast('No project state for "' + projectName + '" yet', 'warn');
       else if (e.status === 401) toast('Connect ChainMemory first', 'warn');
       else toast('Failed to load project state: ' + mensajeError(e), 'error');
     } finally {

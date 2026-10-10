@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba datos sensibles y tarea</title>
+<link rel="stylesheet" href="../content.css">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  main { max-width: 760px; }
+  pre#log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<!--
+  Corre el content.js REAL (v3.3.2) sobre una copia de ChatGPT contra una API de mentira.
+  Abrir como http://chatgpt.com.localhost:PUERTO/pruebas/prueba-full.html
+  (con ?miembro, la clave es de miembro de organizacion y la casilla no debe aparecer).
+  Casos: selector de tareas, vista general, tarea, datos sensibles cancelado y aprobado,
+  PIN incorrecto y correcto, bloqueo por intentos, sin lineas sensibles, 403, API vieja.
+-->
+<main>
+  <div data-turn-key="u"><div data-chatgpt-selection-message-id="m-u"><div data-markdown-text-style="user-message"><p>pregunta</p></div></div></div>
+  <div data-turn-key="a1"><div data-chatgpt-selection-message-id="m-1"><div data-markdown-text-style="assistant-message"><p>Respuesta de prueba, suficientemente larga.</p></div></div></div>
+  <div id="caja" role="textbox" contenteditable="true" style="border:1px solid #999;min-height:40px"></div>
+</main>
+<pre id="log">corriendo…</pre>
+
+<script src="simulador-extension.js"></script>
+<script>
+const MIEMBRO = location.search.includes('miembro');
+window.__pedidos = [];
+window.__modoApi = 'ok';
+window.fetch = async (url, opts = {}) => {
+  const u = String(url).replace('https://api.chainmemory.ai', '');
+  const r = (code, body) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } });
+  if (u.startsWith('/v1/project/') && u.includes('/inject')) {
+    window.__pedidos.push({ u, cliente: (opts.headers || {})['x-cm-client'] });
+    const q = new URL('http://x' + u).searchParams;
+    const full = q.get('level') === 'full', task = q.get('task');
+    if (full && window.__modoApi === 'full-403') return r(403, { error: 'full level requires the owner key', role: 'editor' });
+    const base = { project: 'chainmemory', version: 99, state_hash: '0x', budget: 7000, lang: 'en' };
+    if (task) base.task = task; else base.since = 98;
+    if (full && window.__modoApi !== 'api-vieja') {
+      const sensibles = window.__modoApi === 'sin-sensibles' ? [] : ['- host_0004 [standby] VPS (address=10.0.0.4)', '- erule_0010 [red]: SSH 22, 5817'];
+      return r(200, { ...base, level: 'full', sensitive_lines: sensibles, text: `COMPLETO ${task || 'general'} v99` });
+    }
+    return r(200, { ...base, level: 'public', text: `PUBLICO ${task || 'general'} v99` });
+  }
+  if (u.startsWith('/v1/project/') && u.endsWith('/state')) {
+    return r(200, { project: 'chainmemory', version: 99, state: { priorities: [
+      { id: 'pri_0001', title: 'Claves no custodiales. Listo cuando: ninguna clave privada en el servidor', priority_score: 100, status: 'active' },
+      { id: 'pri_0015', title: 'Endurecer Clouding', priority_score: 85, status: 'active' },
+      { id: 'pri_0006', title: 'Descartada', priority_score: 99, status: 'dropped' },
+    ] } });
+  }
+  return r(200, { memories: [], count: 0, total: 0 });
+};
+if (MIEMBRO) chrome.storage.sync.set({ apiKey: 'aicm_miembro' });
+</script>
+<script src="../cm-wordlist.js"></script>
+<script src="../cm-crypto.js"></script>
+<script src="../cm-bip39.js"></script>
+<script src="../cm-client.js"></script>
+<script src="../content.js"></script>
+<script>
+(async () => {
+  const L = []; const log = s => { L.push(s); document.getElementById('log').textContent = L.join('\n'); };
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  const local = (ks) => new Promise(res => chrome.storage.local.get(ks, res));
+  const fallas = [];
+  const ok = (c, t) => { log((c ? 'OK   ' : 'MAL  ') + t); if (!c) fallas.push(t); };
+  const toasts = [];
+  new MutationObserver(() => { const t = document.querySelector('.cm-toast'); if (t && t.textContent && toasts.at(-1) !== t.textContent) toasts.push(t.textContent); })
+    .observe(document.body, { childList: true, subtree: true, characterData: true });
+  window.__r = { estado: 'corriendo' };
+  await new Promise(res => chrome.storage.sync.set({ projectBrainProject: 'chainmemory' }, res));
+  const caja = () => document.getElementById('caja');
+  const abrir = async () => {
+    if (!document.querySelector('.cm-preview-panel')) { document.querySelector('.cm-inject-fab').click(); await esperar(700); }
+    return document.querySelector('.cm-preview-panel');
+  };
+  const cerrar = async () => { const p = document.querySelector('.cm-preview-panel'); if (p) p.querySelector('.cm-pp-close').click(); await esperar(150); };
+  // corre un inject; si aparece la ventana de aprobacion, accion(fondo) decide que hacer
+  const inyectar = async ({ task = '', sensible = false, accion = null } = {}) => {
+    window.__pedidos = []; toasts.length = 0; caja().textContent = '';
+    const p = await abrir();
+    p.querySelector('.cm-pp-brain-task').value = task;
+    p.querySelector('.cm-pp-full').checked = sensible;
+    p.querySelector('.cm-pp-brain-btn').click();
+    await esperar(400);
+    const fondo = document.querySelector('.cm-approve-backdrop');
+    let vista = null;
+    if (fondo) { vista = { texto: fondo.textContent, pin: !!fondo.querySelector('.cm-approve-pin') }; if (accion) await accion(fondo); }
+    await esperar(500);
+    return { pedidos: window.__pedidos, texto: caja().textContent, toast: toasts.at(-1) || '', ventana: vista, sigueAbierta: !!document.querySelector('.cm-approve-backdrop') };
+  };
+  try {
+    await esperar(2000);
+    if (MIEMBRO) {
+      const p = await abrir();
+      ok(p.querySelector('.cm-pp-full-wrap').hidden, 'clave de miembro: la casilla de datos sensibles no aparece');
+      window.__r = { estado: fallas.length ? 'fallas' : 'ok', fallas }; return;
+    }
+    // 1. panel
+    let p = await abrir();
+    await esperar(300);
+    const opciones = [...p.querySelectorAll('.cm-pp-brain-task option')].map(o => o.value);
+    ok(JSON.stringify(opciones) === JSON.stringify(['', 'pri_0001', 'pri_0015']), `selector: vista general y las prioridades activas por puntaje, sin la descartada (${opciones.join(',')})`);
+    ok(!p.querySelector('.cm-pp-full-wrap').hidden && !p.querySelector('.cm-pp-full').checked, 'clave personal: casilla visible y apagada al abrir');
+    await cerrar();
+
+    // 2. vista general, como 3.3.1
+    let r = await inyectar();
+    ok(r.pedidos.length === 1 && !/level=|task=/.test(r.pedidos[0].u) && r.texto === 'PUBLICO general v99' && (await local(['injectSince:chainmemory']))['injectSince:chainmemory'] === 99, 'vista general: sin level ni task, inyecta y recuerda la v99');
+    ok(/^extension [\d.]+ chatgpt\.com\.localhost$/.test(r.pedidos[0].cliente || ''), `cada pedido dice cliente y sitio (${r.pedidos[0].cliente})`);
+    await chrome.storage.local.set({ 'injectSince:chainmemory': 90 });
+    await esperar(50);
+
+    // 3. tarea
+    r = await inyectar({ task: 'pri_0015' });
+    ok(r.pedidos.length === 1 && /&task=pri_0015$/.test(r.pedidos[0].u) && !/since=/.test(r.pedidos[0].u) && r.texto === 'PUBLICO pri_0015 v99', `tarea: pide task sin since (${r.pedidos[0] && r.pedidos[0].u})`);
+    ok((await local(['injectSince:chainmemory']))['injectSince:chainmemory'] === 90, 'tarea: no mueve la version recordada');
+    await cerrar();
+
+    // 4. datos sensibles, cancelado
+    r = await inyectar({ sensible: true, accion: async (f) => f.querySelector('.cm-approve-cancel').click() });
+    ok(r.ventana && /chatgpt\.com\.localhost/.test(r.ventana.texto) && /address=10\.0\.0\.4/.test(r.ventana.texto) && /erule_0010/.test(r.ventana.texto) && !r.ventana.pin, 'aprobacion: muestra el sitio y las lineas exactas (sin PIN configurado, sin campo de PIN)');
+    ok(r.texto === '' && /Nothing was injected/.test(r.toast) && !r.sigueAbierta, `cancelar: no se inyecta nada (${r.toast})`);
+    ok(!document.querySelector('.cm-pp-full') || !document.querySelector('.cm-pp-full').checked, 'despues de decidir, la casilla vuelve a quedar apagada');
+    ok((await local(['injectSince:chainmemory']))['injectSince:chainmemory'] === 90, 'cancelar: no mueve la version recordada');
+    await cerrar();
+
+    // 5. datos sensibles, aprobado
+    r = await inyectar({ sensible: true, accion: async (f) => f.querySelector('.cm-approve-ok').click() });
+    ok(/&level=full$/.test(r.pedidos[0].u) && r.texto === 'COMPLETO general v99', `aprobar: inyecta el nivel completo (${r.pedidos[0].u})`);
+    await cerrar();
+    r = await inyectar({ task: 'pri_0015', sensible: true, accion: async (f) => f.querySelector('.cm-approve-ok').click() });
+    ok(/&task=pri_0015&level=full$/.test(r.pedidos[0].u) && r.texto === 'COMPLETO pri_0015 v99', 'tarea con datos sensibles aprobada');
+    await cerrar();
+
+    // 6. con PIN
+    const salt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('2468'), 'PBKDF2', false, ['deriveBits']);
+    const hash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: Uint8Array.from(atob(salt), c => c.charCodeAt(0)), iterations: 1000, hash: 'SHA-256' }, base, 256))));
+    await chrome.storage.local.set({ fullPin: { salt, hash, iter: 1000 }, fullPinFails: { n: 0, hasta: 0 } });
+    await esperar(50);
+    let error = '';
+    r = await inyectar({ sensible: true, accion: async (f) => {
+      f.querySelector('.cm-approve-pin').value = '1111'; f.querySelector('.cm-approve-ok').click(); await esperar(300);
+      error = f.querySelector('.cm-approve-error').textContent;
+      f.querySelector('.cm-approve-pin').value = '2468'; f.querySelector('.cm-approve-ok').click(); await esperar(300);
+    } });
+    ok(r.ventana.pin && /Wrong PIN\. 4 attempts left/.test(error), `PIN incorrecto: avisa y no inyecta (${error})`);
+    ok(r.texto === 'COMPLETO general v99' && !r.sigueAbierta, 'PIN correcto: inyecta');
+    await cerrar();
+
+    // 7. bloqueo por intentos
+    r = await inyectar({ sensible: true, accion: async (f) => {
+      for (let i = 0; i < 5; i++) { f.querySelector('.cm-approve-pin').value = '0000'; f.querySelector('.cm-approve-ok').click(); await esperar(250); }
+      error = f.querySelector('.cm-approve-error').textContent;
+      f.querySelector('.cm-approve-pin').value = '2468'; f.querySelector('.cm-approve-ok').click(); await esperar(250);
+      f.querySelector('.cm-approve-cancel').click();
+    } });
+    ok(/locked until/.test(error) && r.texto === '' && /Nothing was injected/.test(r.toast), `5 intentos fallidos: bloquea, y ni el PIN correcto pasa (${error})`);
+    await cerrar();
+    await chrome.storage.local.set({ fullPin: null, fullPinFails: null }); await esperar(50);
+
+    // 8. sin lineas sensibles: no hay nada que aprobar
+    window.__modoApi = 'sin-sensibles';
+    r = await inyectar({ sensible: true });
+    ok(!r.ventana && r.texto === 'COMPLETO general v99', 'nivel completo sin lineas sensibles: no pide aprobacion');
+    await cerrar();
+
+    // 9. 403 y API vieja
+    window.__modoApi = 'full-403';
+    r = await inyectar({ sensible: true });
+    ok(!r.ventana && r.texto === '' && /owner key/.test(r.toast), `403: avisa que hace falta la clave del dueno (${r.toast})`);
+    await cerrar();
+    window.__modoApi = 'api-vieja';
+    r = await inyectar({ sensible: true });
+    ok(!r.ventana && r.texto === '' && /full level yet/.test(r.toast), `API que ignora level: no inyecta el publico como si fuera el completo (${r.toast})`);
+    await cerrar();
+    window.__modoApi = 'ok';
+
+    log(fallas.length ? `\nFALLAS: ${fallas.length}` : '\nTODO OK');
+    window.__r = { estado: fallas.length ? 'fallas' : 'ok', fallas };
+  } catch (e) { log('ERROR ' + e.message); window.__r = { estado: 'error', error: e.message }; }
+})();
+</script>
+</body>
+</html>

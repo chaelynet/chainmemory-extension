@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba PIN de datos sensibles</title>
+<link rel="stylesheet" href="../popup.css">
+</head>
+<body>
+<!--
+  Carga el popup.html ACTUAL (no la copia vieja de popup-simulado.html) con un Chrome de
+  mentira y prueba el PIN de Ajustes (3.3.2): guardar, cambiar y quitar piden el PIN
+  actual; 5 intentos fallidos bloquean; el hash que guarda es el que content.js verifica.
+  Abrir como http://localhost:PUERTO/pruebas/prueba-pin.html
+-->
+<div id="popup"></div>
+<pre id="log" style="white-space:pre-wrap;font:12px ui-monospace,Consolas,monospace;background:#f4f4f4;color:#111;padding:8px">corriendo…</pre>
+<script src="chrome-falso.js"></script>
+<script>
+(async () => {
+  const L = []; const log = s => { L.push(s); document.getElementById('log').textContent = L.join('\n'); };
+  const fallas = []; const ok = (c, t) => { log((c ? 'OK   ' : 'MAL  ') + t); if (!c) fallas.push(t); };
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  window.__r = { estado: 'corriendo' };
+  try {
+    // el cuerpo del popup actual, y sus scripts en orden
+    const html = await (await fetch('../popup.html?nocache=' + Date.now())).text();
+    document.getElementById('popup').innerHTML = html.split(/<body[^>]*>/)[1].split('</body>')[0].replace(/<script[^>]*><\/script>/g, '');
+    for (const s of ['cm-wordlist.js', 'cm-crypto.js', 'cm-bip39.js', 'cm-client.js', 'popup.js']) {
+      await new Promise((res, rej) => { const e = document.createElement('script'); e.src = '../' + s + '?nocache=' + Date.now(); e.onload = res; e.onerror = rej; document.body.appendChild(e); });
+    }
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await esperar(400);
+    const toasts = [];
+    new MutationObserver(() => { document.querySelectorAll('.cm-toast, .toast, [class*="toast"]').forEach(t => { if (t.textContent && toasts.at(-1) !== t.textContent) toasts.push(t.textContent); }); })
+      .observe(document.body, { childList: true, subtree: true, characterData: true });
+    const $ = id => document.getElementById(id);
+    await loadSettings();
+    await esperar(100);
+    ok($('pin-current').hidden && $('pin-remove').disabled && $('pin-save').textContent === 'Save PIN', 'sin PIN: no pide el actual, "Quitar" deshabilitado');
+
+    $('pin-new').value = '12'; $('pin-save').click(); await esperar(200);
+    ok(!window.__almacen.local.fullPin && /4 to 32/.test(toasts.at(-1) || ''), `PIN corto: se rechaza (${toasts.at(-1)})`);
+
+    $('pin-new').value = '2468'; $('pin-save').click(); await esperar(1500);
+    const g = window.__almacen.local.fullPin;
+    ok(g && g.salt && g.hash && g.iter === 200000 && !JSON.stringify(window.__almacen).includes('2468'), 'guarda sal y hash PBKDF2 (200000 iteraciones), nunca el PIN');
+    ok(!('fullPin' in window.__almacen.sync), 'el PIN va a storage.local, no a sync (no viaja a otros equipos)');
+    ok(!$('pin-current').hidden && !$('pin-remove').disabled && $('pin-save').textContent === 'Change PIN' && $('pin-new').value === '', 'con PIN: pide el actual para cambiar o quitar');
+
+    // el hash que guarda el popup es el que verifica content.js (misma derivacion)
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('2468'), 'PBKDF2', false, ['deriveBits']);
+    const h = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: Uint8Array.from(atob(g.salt), c => c.charCodeAt(0)), iterations: g.iter, hash: 'SHA-256' }, base, 256))));
+    ok(h === g.hash, 'el hash coincide con la derivacion que usa content.js');
+
+    $('pin-current').value = '0000'; $('pin-remove').click(); await esperar(1500);
+    ok(window.__almacen.local.fullPin && /Wrong current PIN\. 4 attempts left/.test(toasts.at(-1) || ''), `quitar con PIN actual incorrecto: no quita (${toasts.at(-1)})`);
+    $('pin-current').value = '0000'; $('pin-new').value = '9999'; $('pin-save').click(); await esperar(1500);
+    ok(window.__almacen.local.fullPin.hash === g.hash, 'cambiar con PIN actual incorrecto: no cambia');
+    for (let i = 0; i < 3; i++) { $('pin-current').value = '0000'; $('pin-remove').click(); await esperar(1500); }
+    ok(/locked for 5 minutes/.test(toasts.at(-1) || '') && window.__almacen.local.fullPinFails.hasta > Date.now(), `5 intentos fallidos: bloquea 5 minutos (${toasts.at(-1)})`);
+    $('pin-current').value = '2468'; $('pin-remove').click(); await esperar(1500);
+    ok(window.__almacen.local.fullPin && /Too many wrong PINs/.test(toasts.at(-1) || ''), 'bloqueado: ni el PIN correcto quita el PIN');
+    window.__almacen.local.fullPinFails = { n: 0, hasta: 0 };
+    $('pin-current').value = '2468'; $('pin-remove').click(); await esperar(1500);
+    ok(!window.__almacen.local.fullPin && $('pin-current').hidden && /PIN removed/.test(toasts.at(-1) || ''), 'con el PIN correcto: lo quita');
+
+    log(fallas.length ? `\nFALLAS: ${fallas.length}` : '\nTODO OK');
+    window.__r = { estado: fallas.length ? 'fallas' : 'ok', fallas };
+  } catch (e) { log('ERROR ' + e.stack); window.__r = { estado: 'error', error: e.message }; }
+})();
+</script>
+</body>
+</html>

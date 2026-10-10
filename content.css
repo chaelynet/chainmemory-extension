@@ -333,7 +333,94 @@
   gap: 8px !important;
   padding: 8px 14px !important;
   border-bottom: 1px solid #1f1f2a !important;
+  flex-wrap: wrap !important;
 }
+/* v3.3.2: que inyectar (vista general o una tarea) y la casilla de datos sensibles */
+.cm-pp-brain-task {
+  flex: 1 1 100% !important;
+  min-width: 0 !important;
+  background: #14141e !important;
+  border: 1px solid #2a2a35 !important;
+  color: #e8e8f0 !important;
+  padding: 5px 8px !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-family: inherit !important;
+  cursor: pointer !important;
+  text-overflow: ellipsis !important;
+}
+.cm-pp-full-wrap { color: #FAC775 !important; }
+.cm-pp-full-wrap[hidden] { display: none !important; }
+
+/* v3.3.2: aprobacion de datos sensibles */
+.cm-approve-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+  z-index: 1000000 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 16px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+.cm-approve {
+  background: #06060e !important;
+  color: #e8e8f0 !important;
+  border: 1px solid rgba(239, 159, 39, 0.45) !important;
+  border-radius: 12px !important;
+  width: 560px !important;
+  max-width: 100% !important;
+  max-height: 85vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 16px 18px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7) !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+.cm-approve h3 { margin: 0 !important; font-size: 14px !important; font-weight: 600 !important; color: #FAC775 !important; }
+.cm-approve p { margin: 0 !important; color: #b8b8c8 !important; }
+.cm-approve-lines {
+  margin: 0 !important;
+  overflow: auto !important;
+  min-height: 60px !important;
+  max-height: 40vh !important;
+  background: #0d0d18 !important;
+  border: 1px solid #1f1f2a !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font: 11px/1.45 ui-monospace, Consolas, monospace !important;
+  color: #e8e8f0 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+.cm-approve-pin-label { display: flex !important; align-items: center !important; gap: 8px !important; color: #b8b8c8 !important; }
+.cm-approve-pin {
+  background: #14141e !important;
+  border: 1px solid #2a2a35 !important;
+  color: #e8e8f0 !important;
+  border-radius: 6px !important;
+  padding: 5px 8px !important;
+  font-family: inherit !important;
+  width: 140px !important;
+}
+.cm-approve-error { min-height: 16px !important; color: #F09595 !important; }
+.cm-approve-buttons { display: flex !important; justify-content: flex-end !important; gap: 8px !important; }
+.cm-approve-buttons button {
+  padding: 7px 14px !important;
+  border-radius: 8px !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  border: 1px solid #2a2a35 !important;
+  background: #14141e !important;
+  color: #e8e8f0 !important;
+}
+.cm-approve-buttons .cm-approve-ok { background: #8a5a12 !important; border-color: #EF9F27 !important; color: #fff !important; }
+.cm-approve-buttons .cm-approve-ok:disabled { opacity: 0.5 !important; cursor: wait !important; }
 .cm-pp-brain-btn {
   display: inline-flex !important;
   align-items: center !important;
