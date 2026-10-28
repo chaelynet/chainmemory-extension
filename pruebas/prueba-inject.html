@@ -76,7 +76,8 @@ window.fetch = async (url, opts = {}) => {
       ['since-400', 'since invalido: reintenta sin since', [/&since=96$/, /\/inject\?budget=7000&lang=(es|en)$/], /desde v95/, 96],
       ['ruta-404', 'servidor sin la ruta: lo arma aca', [/\/inject/, /\/state$/], /\[ChainMemory · Project State: chainmemory v96\][\s\S]*foco de prueba/, 96],
       ['caido', 'servidor caido (500): lo arma aca', [/\/inject/, /\/state$/], /\[ChainMemory · Project State: chainmemory v96\]/, 96],
-      ['sin-estado', 'proyecto sin estado: avisa y no inyecta', [/\/inject/], null, 96],
+      // desde 3.3.3 el boton pasa a "Create project state" y no pide /inject (ver prueba-crear-estado.html)
+      ['sin-estado', 'proyecto sin estado: ofrece crear y no inyecta', [], null, 96],
     ];
     for (const [modo, nombre, pedidosEsp, textoEsp, versionEsp] of casos) {
       window.__modoApi = modo; window.__pedidos = []; toasts.length = 0;
@@ -91,7 +92,7 @@ window.fetch = async (url, opts = {}) => {
       const p = window.__pedidos, texto = caja.textContent, t = toasts.at(-1) || '(sin aviso)', v = await local('injectSince:chainmemory');
       const okPedidos = p.length === pedidosEsp.length && pedidosEsp.every((re, i) => re.test(p[i]));
       const okTexto = textoEsp ? textoEsp.test(texto) : texto === '';
-      const okAviso = textoEsp ? /injected|copied/i.test(t) : /No project state/i.test(t);
+      const okAviso = textoEsp ? /injected|copied/i.test(t) : b.dataset.modo === 'crear';
       const ok = okPedidos && okTexto && okAviso && v === versionEsp;
       log(`\n${ok ? 'OK ' : 'MAL'} ${nombre}\n   pedidos: ${p.join(' | ') || '(ninguno)'}\n   caja: ${texto.slice(0, 80) || '(vacia)'}\n   aviso: ${t}\n   version recordada: ${v}`);
       if (!ok) fallas.push(nombre);

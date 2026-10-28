@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Prueba crear estado</title>
+<link rel="stylesheet" href="../content.css">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  main { max-width: 760px; }
+  pre#log { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<!--
+  Corre el content.js REAL (3.3.3) sobre una copia de ChatGPT y prueba "Create project
+  state" y el aviso de secretos al guardar, contra una API de mentira. Abrir como
+  http://chatgpt.com.localhost:PUERTO/pruebas/prueba-crear-estado.html
+  Las memorias se sellan de verdad con la frase del simulador, asi que se prueba tambien
+  que el panel las abre en el navegador.
+-->
+<main id="chat">
+  <div data-turn-key="u"><div data-chatgpt-selection-message-id="m-u"><div data-markdown-text-style="user-message"><p>pregunta</p></div></div></div>
+  <div data-turn-key="a1"><div data-chatgpt-selection-message-id="m-1"><div data-markdown-text-style="assistant-message"><p>Respuesta vieja, suficientemente larga para guardar.</p></div></div></div>
+</main>
+<div id="caja" role="textbox" contenteditable="true" style="border:1px solid #999;min-height:40px"></div>
+<pre id="log">corriendo…</pre>
+
+<script src="simulador-extension.js"></script>
+<script src="../cm-wordlist.js"></script>
+<script src="../cm-crypto.js"></script>
+<script src="../cm-bip39.js"></script>
+<script src="../cm-client.js"></script>
+<script>
+// API de mentira solo para esta prueba (reemplaza la del simulador)
+window.__pedidos = [];
+window.__ops = [];
+window.__modoApi = 'ok';
+window.__blobs = null;
+// ?largas=1: como la cuenta demo, memorias largas que no empiezan en #1; corre solo hasta la consigna
+const LARGAS = new URLSearchParams(location.search).has('largas');
+const NUMS = LARGAS ? [3, 4, 5, 6, 7] : [1, 2, 3];
+const TEXTOS = LARGAS ? Object.fromEntries(NUMS.map(n => [n, `[IA ${n}] ` + `Texto largo de la memoria ${n}. `.repeat(90)])) : {
+  1: '[ChatGPT] Para abrir una cafeteria de especialidad hace falta un local chico, con buena circulacion de gente.',
+  2: '[ChatGPT] Decidimos empezar sin cocina, solo cafe y pasteleria comprada. El riesgo mayor es que el alquiler supere el presupuesto.',
+  3: '[Claude] Lo proximo es armar el plan de costos. Falta saber cuantos clientes por dia hacen falta para cubrir gastos.',
+};
+window.fetch = async (url, opts = {}) => {
+  const u = String(url).replace('https://api.chainmemory.ai', '');
+  const m = opts.method || 'GET';
+  const r = (code, body) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } });
+  window.__pedidos.push(m + ' ' + u);
+  if (u === '/v1/projects') return r(200, { count: 2, projects: [{ id: 1, name: 'mi cafeteria', project_id: 'cafeteria' }, { id: 2, name: 'otro', project_id: 'otro' }] });
+  if (u.startsWith('/v1/inject/balance')) return r(200, { balance_wei: '376000000000000000', balance_aic: '0.376' });
+  if (u === '/v1/profile') return r(200, { ai_id: 1, name: 'prueba' });
+  if (u.startsWith('/v1/project/otro/state')) return r(200, { project: 'otro', version: 7, state: { priorities: [] } });
+  if (u.startsWith('/v1/project/') && u.endsWith('/state/ops')) {
+    const cuerpo = JSON.parse(opts.body);
+    window.__ops.push({ ruta: u, cuerpo });
+    if (window.__modoApi === '422') return r(422, { error: 'evidence_unresolved' });
+    return r(201, { version: 1, state_hash: '0x' + 'cd'.repeat(32), applied_count: cuerpo.ops.length, rejected: [] });
+  }
+  if (u.startsWith('/v1/project/') && u.endsWith('/state')) return r(404, { error: 'project state not found' });
+  if (u.startsWith('/v1/project/') && u.includes('/inject')) return r(404, { error: 'project state not found' });
+  if (u.startsWith('/v1/memories/list')) {
+    const proy = new URL('https://x' + u).searchParams.get('project');
+    if (proy !== 'cafeteria') return r(200, { memories: [], count: 0 });
+    return r(200, { count: NUMS.length, memories: [...NUMS].reverse().map(n => ({ memory_number: n, scheme: 'sealed', content_blob: window.__blobs[n], timestamp: 1792000000 + n, tags: ['cafeteria'], estimated_tokens: 30 })) });
+  }
+  if (u === '/v1/memory/sealed') return r(200, { memory_number: 4, memory_id: 4, scheme: 'sealed', searchable: true });
+  if (u === '/v1/inject') return r(200, { injected: 0, memories: [] });
+  return r(200, { memories: [], count: 0 });
+};
+</script>
+<script src="../content.js"></script>
+<script>
+(async () => {
+  const L = []; const log = s => { L.push(s); document.getElementById('log').textContent = L.join('\n'); };
+  const esperar = ms => new Promise(r => setTimeout(r, ms));
+  const sync = (k) => new Promise(res => chrome.storage.sync.get([k], o => res(o[k])));
+  const fallas = [];
+  const toasts = [];
+  new MutationObserver(() => { const t = document.querySelector('.cm-toast'); if (t && t.textContent && toasts.at(-1) !== t.textContent) toasts.push(t.textContent); })
+    .observe(document.body, { childList: true, subtree: true, characterData: true });
+  const caso = (ok, nombre, detalle) => { log(`${ok ? 'OK ' : 'MAL'} ${nombre}${detalle ? '\n   ' + detalle : ''}`); if (!ok) fallas.push(nombre); };
+  const abrirPanel = async () => { if (!document.querySelector('.cm-preview-panel')) { document.querySelector('.cm-inject-fab').click(); await esperar(900); } };
+  const cerrarPanel = () => { const p = document.querySelector('.cm-preview-panel'); if (p) p.querySelector('.cm-pp-close').click(); };
+  const responder = (html) => {
+    const d = document.createElement('div');
+    d.innerHTML = `<div data-chatgpt-selection-message-id="m-${Date.now()}"><div data-markdown-text-style="assistant-message">${html}</div></div>`;
+    document.getElementById('chat').appendChild(d);
+  };
+  window.__r = { estado: 'corriendo' };
+  try {
+    // memorias selladas de verdad con la frase del simulador
+    const cli = await CMClient.fromMnemonic(window.chrome && 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+    window.__blobs = {};
+    for (const n of NUMS) window.__blobs[n] = (await cli.seal(TEXTOS[n])).blob_b64;
+    await new Promise(res => chrome.storage.sync.set({ projectBrainProject: 'mi cafeteria' }, res));
+    await esperar(2200);
+
+    // 1. proyecto sin estado: el boton pasa a "Create"
+    await abrirPanel();
+    let b = document.querySelector('.cm-pp-brain-btn');
+    caso(b && b.dataset.modo === 'crear' && /Create project state/.test(b.textContent) && document.querySelector('.cm-pp-brain-task').hidden,
+      'proyecto sin estado: el boton dice Create y se oculta el selector de tareas', b && b.textContent);
+
+    // 2. el aviso: cuenta las memorias y no deja seguir sin "I understand"
+    b.click();
+    await esperar(900);
+    let dlg = document.querySelector('.cm-cs');
+    const ok = dlg && dlg.querySelector('.cm-approve-ok');
+    caso(dlg && /readable on ChainMemory's server/.test(dlg.textContent) && /cannot be deleted/.test(dlg.textContent) && new RegExp(`${NUMS.length} memories`).test(dlg.textContent) && ok.disabled,
+      'aviso: dice legible y sin borrado, cuenta 3 memorias, Continue apagado', dlg && dlg.querySelector('.cm-cs-count').textContent);
+    dlg.querySelector('.cm-cs-understand').click();
+    await esperar(100);
+    caso(!ok.disabled, 'aviso: con "I understand" se habilita Continue');
+    // ?pausa=aviso o ?pausa=revision: deja el cuadro abierto para mirarlo
+    const pausa = new URLSearchParams(location.search).get('pausa');
+    if (pausa === 'aviso') { window.__r = { estado: 'pausa' }; return; }
+
+    // 3. la consigna: memorias abiertas en el navegador, gratis, sin /v1/inject
+    window.__pedidos = [];
+    ok.click();
+    await esperar(600);
+    const caja = document.getElementById('caja').textContent;
+    const pagas = window.__pedidos.filter(p => p === 'POST /v1/inject');
+    if (LARGAS) {
+      const todas = NUMS.every(n => caja.includes(`[#${n}] [IA ${n}]`));
+      caso(todas && caja.length <= 7000 && !pagas.length, 'largas: entran las 5 memorias dentro del tope', `${caja.length} caracteres`);
+      caso(/5 shortened/.test(toasts.at(-1) || '') && !/left out/.test(toasts.at(-1) || ''), 'largas: el aviso dice que se acortaron y que no falta ninguna', toasts.at(-1));
+      caso(caja.includes('"evidence_memory_ids":[3]') && caja.includes('"evidence_memory_ids":[3,4]') && caja.includes('"evidence_memory_ids":[5]') && !/evidence_memory_ids":\[1/.test(caja),
+        'largas: el ejemplo del formato usa los numeros reales (3, 4, 5)');
+      log(fallas.length ? `\nFALLAS: ${fallas.join('; ')}` : '\nOK: todos los casos se comportan como deben.');
+      window.__r = { estado: fallas.length ? 'fallas' : 'ok', fallas };
+      return;
+    }
+    caso(/Create the project state: "mi cafeteria"/.test(caja) && /\[#1\] \[ChatGPT\] Para abrir/.test(caja) && /\[#3\] \[Claude\]/.test(caja) && caja.indexOf('[#1]') < caja.indexOf('[#3]') && !pagas.length && caja.length <= 7000,
+      'consigna: trae #1..#3 descifradas, en orden, dentro del tope y sin la inyeccion paga', `${caja.length} caracteres · pedidos: ${window.__pedidos.join(' | ')}`);
+    caso(!!document.querySelector('.cm-cs-bar') && /nothing was charged/.test(toasts.at(-1) || ''), 'consigna: aparece la barra de espera y el aviso dice que no se cobro', toasts.at(-1));
+
+    // 4. la IA responde: la revision se abre sola y descarta lo que no entra
+    const ops = [
+      { op: 'set_vision', statement: 'Una cafeteria de especialidad chica', evidence_memory_ids: [1] },
+      { op: 'set_focus', value: 'Conseguir el local', evidence_memory_ids: [1, 2] },
+      { op: 'set_focus', value: 'Repetido', evidence_memory_ids: [1] },
+      { op: 'add_decision', title: 'Sin cocina', statement: 'Solo cafe y pasteleria comprada', evidence_memory_ids: [2] },
+      { op: 'add_risk', title: 'Alquiler por encima del presupuesto', severity: 'medium', evidence_memory_ids: [2] },
+      { op: 'add_priority', title: 'Armar el plan de costos', priority_score: 80, evidence_memory_ids: [3] },
+      { op: 'add_open_question', question: 'Cuantos clientes por dia hacen falta', evidence_memory_ids: [3] },
+      { op: 'add_decision', title: 'Inventada', statement: 'Cita una memoria que no se dio', evidence_memory_ids: [99] },
+      { op: 'add_env_host', name: 'servidor', role: 'primary', evidence_memory_ids: [1] },
+      { op: 'add_constraint', statement: 'La clave es aic_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456', evidence_memory_ids: [1] },
+      { op: 'add_risk', title: 'Sin evidencia', severity: 'low' },
+    ];
+    responder(`<p>Aca esta:</p><pre><code>${JSON.stringify({ ops }, null, 2).replace(/</g, '&lt;')}</code></pre>`);
+    await esperar(6500);
+    dlg = document.querySelector('.cm-cs');
+    const filas = dlg ? dlg.querySelectorAll('.cm-cs-row') : [];
+    const fuera = dlg && dlg.querySelector('.cm-cs-out') ? dlg.querySelector('.cm-cs-out').textContent : '';
+    caso(dlg && /Review your project state/.test(dlg.textContent) && filas.length === 6,
+      'revision: se abre sola con 6 items validos', `${filas.length} filas · ${fuera}`);
+    caso(/1 repeated/.test(fuera) && /1 cites a memory that was not given/.test(fuera) && /1 not one of the 9 types/.test(fuera) && /1 looks like a secret/.test(fuera) && /1 no supporting memory/.test(fuera),
+      'revision: dice que dejo afuera y por que');
+    caso(/6 items · Cost: 0\.080 AIC · Balance: 0\.3760 AIC/.test(dlg.querySelector('.cm-cs-total').textContent), 'revision: costo exacto y saldo', dlg.querySelector('.cm-cs-total').textContent);
+    if (pausa === 'revision') { window.__r = { estado: 'pausa' }; return; }
+    filas[filas.length - 1].querySelector('input').click();
+    await esperar(100);
+    caso(/5 items · Cost: 0\.075 AIC/.test(dlg.querySelector('.cm-cs-total').textContent), 'revision: al destildar un item baja el costo', dlg.querySelector('.cm-cs-total').textContent);
+
+    // 5. 422: el error queda en el cuadro y se puede reintentar
+    window.__modoApi = '422';
+    dlg.querySelector('.cm-approve-ok').click();
+    await esperar(500);
+    caso(document.querySelector('.cm-cs') && /not anchored on chain yet/.test(dlg.querySelector('.cm-approve-error').textContent),
+      '422: avisa en el cuadro, no lo cierra', dlg.querySelector('.cm-approve-error').textContent);
+
+    // 6. guardar
+    window.__modoApi = 'ok';
+    dlg.querySelector('.cm-approve-ok').click();
+    await esperar(600);
+    const env = window.__ops.at(-1);
+    const c = env && env.cuerpo;
+    const vis = c && c.ops.find(o => o.op === 'set_vision');
+    const riesgo = c && c.ops.find(o => o.op === 'add_risk');
+    caso(env && env.ruta === '/v1/project/mi%20cafeteria/state/ops' && c.ops.length === 5 && vis && !('evidence_memory_ids' in vis) && riesgo.severity === 'med'
+      && /^chainmemory-extension /.test(c.generated_by) && c.consolidated_until_event === 3,
+      'guardar: manda 5 ops limpias (vision sin evidencia, medium -> med) a la ruta del proyecto', JSON.stringify(c).slice(0, 300));
+    caso(!document.querySelector('.cm-cs') && !document.querySelector('.cm-cs-bar') && /Project state created — version 1 · 5 items/.test(toasts.at(-1) || ''),
+      'guardar: cierra todo y confirma la version', toasts.at(-1));
+    caso(await sync('projectBrainProject') === 'mi cafeteria', 'guardar: Settings sigue con el proyecto configurado');
+
+    // 7. proyecto que ya tiene estado: Create no le suma items
+    await new Promise(res => chrome.storage.sync.set({ projectBrainProject: '' }, res));
+    await esperar(100);
+    cerrarPanel(); await esperar(200);
+    await abrirPanel();
+    b = document.querySelector('.cm-pp-brain-btn');
+    caso(b.dataset.modo === 'crear', 'sin proyecto en Settings: el boton tambien ofrece Create');
+    b.click();
+    await esperar(800);
+    dlg = document.querySelector('.cm-cs');
+    const sel = dlg.querySelector('.cm-cs-project');
+    sel.value = '1'; sel.dispatchEvent(new Event('change'));
+    await esperar(700);
+    dlg.querySelector('.cm-cs-understand').click();
+    await esperar(100);
+    caso(/already has a project state \(version 7\)/.test(dlg.querySelector('.cm-approve-error').textContent) && dlg.querySelector('.cm-approve-ok').disabled,
+      'proyecto con estado: avisa y no deja seguir', dlg.querySelector('.cm-approve-error').textContent);
+    // eligiendo "mi cafeteria" si deja, y al guardar completa Settings
+    sel.value = '0'; sel.dispatchEvent(new Event('change'));
+    await esperar(900);
+    caso(!dlg.querySelector('.cm-approve-ok').disabled && /3 memories/.test(dlg.textContent), 'eligiendo el proyecto sin estado se habilita Continue');
+    dlg.querySelector('.cm-approve-ok').click();
+    await esperar(600);
+    responder(`<pre><code>${JSON.stringify({ ops: ops.slice(0, 2) })}</code></pre>`);
+    await esperar(6500);
+    dlg = document.querySelector('.cm-cs');
+    dlg.querySelector('.cm-approve-ok').click();
+    await esperar(600);
+    caso(await sync('projectBrainProject') === 'mi cafeteria', 'sin proyecto en Settings: al guardar queda configurado', await sync('projectBrainProject'));
+
+    // 8. cancelar en la barra no guarda nada
+    cerrarPanel(); await esperar(200);
+    await new Promise(res => chrome.storage.sync.set({ projectBrainProject: 'mi cafeteria' }, res));
+    await abrirPanel();
+    document.querySelector('.cm-pp-brain-btn').click(); await esperar(900);
+    dlg = document.querySelector('.cm-cs');
+    dlg.querySelector('.cm-cs-understand').click(); await esperar(100);
+    dlg.querySelector('.cm-approve-ok').click(); await esperar(500);
+    const antes = window.__ops.length;
+    document.querySelector('.cm-cs-bar-cancel').click(); await esperar(200);
+    responder(`<pre><code>${JSON.stringify({ ops })}</code></pre>`);
+    await esperar(5000);
+    caso(!document.querySelector('.cm-cs') && !document.querySelector('.cm-cs-bar') && window.__ops.length === antes, 'cancelar: no abre revision ni guarda');
+
+    // 9. Save con un secreto: pregunta antes; Cancel no guarda, Save anyway si
+    responder('<p>Tus palabras son: abandon ability able about above absent absorb abstract absurd abuse access accident.</p>');
+    await esperar(1200);
+    const saveBtns = document.querySelectorAll('.cm-save-btn');
+    const sb = saveBtns[saveBtns.length - 1];
+    window.__pedidos = [];
+    sb.click(); await esperar(400);
+    dlg = document.querySelector('.cm-cs');
+    caso(dlg && /recovery words/.test(dlg.textContent), 'save con secreto: pregunta antes', dlg && dlg.querySelector('h3').textContent);
+    dlg.querySelector('.cm-approve-cancel').click(); await esperar(300);
+    caso(!window.__pedidos.some(p => p === 'POST /v1/memory/sealed') && /Not saved/.test(toasts.at(-1) || ''), 'save con secreto: Cancel no guarda');
+    sb.click(); await esperar(400);
+    document.querySelector('.cm-cs .cm-approve-ok').click(); await esperar(1200);
+    caso(window.__pedidos.some(p => p === 'POST /v1/memory/sealed'), 'save con secreto: Save anyway guarda');
+    // una respuesta comun no pregunta
+    window.__pedidos = [];
+    const viejo = document.querySelector('[data-chatgpt-selection-message-id="m-1"] .cm-save-btn');
+    viejo.click(); await esperar(1200);
+    caso(!document.querySelector('.cm-cs') && window.__pedidos.some(p => p === 'POST /v1/memory/sealed'), 'save comun: guarda sin preguntar');
+
+    log(fallas.length ? `\nFALLAS: ${fallas.join('; ')}` : '\nOK: todos los casos se comportan como deben.');
+    window.__r = { estado: fallas.length ? 'fallas' : 'ok', fallas };
+  } catch (e) { log('ERROR ' + e.message + '\n' + e.stack); window.__r = { estado: 'error', error: e.message }; }
+})();
+</script>
+</body>
+</html>

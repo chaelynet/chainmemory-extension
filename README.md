@@ -8,6 +8,7 @@ Browser extension for [ChainMemory](https://chainmemory.ai) — save and recall 
 - **Find what you sealed**: the search vector of each memory is computed on your device, by ChainMemory's own engine, and sent with the encrypted blob, so your memories can be found by meaning without the server ever reading them.
 - **Inject**: a floating "Inject memory" button opens a panel where you pick which memories to send into the current chat, giving the AI continuity with what you discussed on other platforms and other models.
 - **Inject project state**: if you keep a Project Brain, one click injects its consolidated state — what changed, open risks, priorities, decisions in force — together with its on-chain anchor, or everything needed to work on one task. It is safe to paste by default; sensitive data goes out only with your approval.
+- **Create project state**: if a project has no state yet, the AI you have open organizes the project's memories into one — focus, decisions, risks, priorities, open questions — citing the memories behind each item. You review every line before it is saved.
 - **Verify**: every memory is anchored on-chain with its own `event_hash`. Anyone can verify a memory was not altered, without your API key and without seeing its content.
 - **Work as a team**: if your organization issued you a member or project key, the extension works with it exactly as it does with a personal key.
 
@@ -27,6 +28,7 @@ ChainMemory charges protocol fees in AIC, the native token of its chain. The ext
 | Save a response | **0.001 AIC** protocol fee **+ on-chain storage, which grows with length** |
 | Inject memories into a chat | **0.1 AIC** per injection, regardless of how many memories |
 | Inject project state | free |
+| Create project state | reading your memories is free; saving it costs **0.05 AIC + 0.005 per item** |
 | Reading, filtering, tagging, archiving | free |
 
 Half of every protocol fee is burned, half goes to the ecosystem treasury. Claim free AIC at [faucet.chainmemory.ai](https://faucet.chainmemory.ai).
@@ -87,7 +89,14 @@ What changes when you use one:
 
 In **Settings → Project Brain**, set the name of your project. There is no default: if you leave it empty, the "Inject project state" button will tell you to set one. The project must already exist in your ChainMemory account.
 
-Note that the Project Brain is **built** through the MCP server or the API, not from the extension. The extension can read and inject a project state; it cannot consolidate one.
+If the project has no state yet, the panel shows **✨ Create project state**:
+
+1. A notice explains what happens. Unlike your memories, the state is **stored readable on ChainMemory's server**, so it can be checked and injected; only its fingerprint goes on chain. It **cannot be deleted**: you can correct it later, but every version is kept.
+2. The extension decrypts the project's memories in your browser and pastes them into the chat, each with its number, together with instructions. This is free: it does not go through the paid injection.
+3. When your AI answers, the extension reads the JSON, checks each item against the grammar (nine operation types, closed values, evidence only from the memories it was given, nothing that looks like a secret) and shows a review. Untick what you do not want.
+4. **Save state** writes it. If Settings → Project Brain was empty, it is set to this project.
+
+Updating an existing state — closing risks, marking priorities done — is still done through the MCP server or the API.
 
 ## How injection works
 
@@ -118,6 +127,7 @@ chainmemory-extension/
 
 ## Version history
 
+- **3.3.3** (October 2026) — **Create the project state from the extension.** When a project has no state, the AI you have open organizes its memories into one; the extension validates every item, you review it, and only Save state writes it, at 0.05 AIC plus 0.005 per item. A notice comes first: the state is readable on the server and cannot be deleted. **Save asks before storing a secret**: if an answer seems to contain an API key, a private key or recovery words, the extension asks first, because a memory cannot be deleted.
 - **3.3.2** (October 2026) — **Inject one task, and choose whether sensitive data goes out.** The panel has a selector: the project overview as before, or one of your active priorities, which injects everything needed to work on it (the priority in full, its completion criterion, the risks it mitigates, what mentions it, and every work rule and constraint). Everything injected is public by default: addresses, ports, server paths and security rules are withheld, and how a project's AIC are safeguarded is never included. With a personal `aic_` key, an **Include sensitive data** box appears; it is off every time the panel opens. When you tick it, the extension shows exactly which lines would go out and to which site, and nothing is injected until you approve that one time. ChainMemory logs every such request. An optional **PIN** in Settings is asked before approving; it is stored only in this browser as a salted hash, changing or removing it requires the current one, and five wrong attempts lock approval for five minutes. Member and project keys never see the box: the server refuses them the full level.
 - **3.3.1** (October 2026) — **Inject project state brings what matters first.** The text is now built by ChainMemory's server (`GET /v1/project/:name/inject`) by relevance and within the size limit: what changed since the last time you injected that project, open risks (high first), active priorities, recent decisions and milestones, open questions, and each constraint as a one-line rule, plus a list of items that have not been reviewed for a long time. Before, the text followed a fixed order and was cut at the limit, so with a medium-sized project the risks and priorities never arrived. The extension remembers, per project and only in this browser, which version you injected last. If the server cannot build the text, it is built in the browser as before.
 - **3.3.0** (September 2026) — **every memory is saved sealed**: the vault (12 words) is required to save, and the plain-text path is gone. **Sealed memories are searchable**: the extension computes each memory's search vector on your device with ChainMemory's own engine (tokenizer, model reader and WebAssembly kernel written by ChainMemory — the 14 MB of third-party inference code is gone and the package is 0.1 MB) and sends it with the encrypted blob. The 45 MB search model is downloaded once from `models.chainmemory.ai`, checked against its SHA-256 anchored on ChainMemory's chain, and checked again every time it is read from the cache. Works again with ChatGPT's redesigned page (inject and save); the Save bar is full width and aligned with the answer on every site; the saved text no longer includes the button's label; after an update, an open tab asks to be reloaded instead of saving a memory without its search vector.

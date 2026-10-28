@@ -51,6 +51,15 @@
 //      reporting "Save failed" (which led to duplicate, unsearchable saves).
 //  25. The Save bar is full width under the answer on every site, aligned
 //      with the answer's text (Gemini's answer element has no width of its own).
+//
+// v3.3.3:
+//  26. "Create project state": when the project has no state, the user's own
+//      AI organizes the project's memories (read free, decrypted here) into
+//      state operations; the extension validates them, the user reviews every
+//      line, and only "Save state" writes it. A notice comes first: the state
+//      is readable on the server and cannot be deleted.
+//  27. Save asks first when the answer seems to contain a secret (API key,
+//      private key, recovery words): a memory cannot be deleted.
 // ═══════════════════════════════════════════════════════════════════
 
 (function() {
@@ -524,6 +533,12 @@
       toast(`Too long to store in one transaction: ${text.length.toLocaleString()} characters (limit ~${MAX_SAVE_CHARS.toLocaleString()}). Save a shorter selection instead of losing the rest.`, 'warn');
       return;
     }
+    // v3.3.3: una memoria no se borra; si parece tener un secreto, se pregunta antes
+    const secretos = buscarSecretos(text);
+    if (secretos.length && !(await confirmarSecretos(secretos))) {
+      toast('Not saved', 'warn');
+      return;
+    }
 
     btn.disabled = true;
     const orig = btn.innerHTML;
@@ -812,7 +827,10 @@
     panel.querySelector('.cm-pp-close').addEventListener('click', closePanel);
     panel.querySelector('.cm-pp-cancel').addEventListener('click', closePanel);
     panel.querySelector('.cm-pp-inject').addEventListener('click', handleInjectClick);
-    panel.querySelector('.cm-pp-brain-btn').addEventListener('click', e => handleInjectProjectState(e.currentTarget));
+    panel.querySelector('.cm-pp-brain-btn').addEventListener('click', e => {
+      const b = e.currentTarget;
+      if (b.dataset.modo === 'crear') crearEstado(b); else handleInjectProjectState(b);
+    });
     prepararBrainPanel(panel);
     panel.querySelector('.cm-pp-filter-project').addEventListener('change', e => {
       _state.filterProject = e.target.value;
@@ -1253,7 +1271,18 @@
     if (casilla && String(_state.apiKey || '').startsWith('aic_')) casilla.hidden = false;
     const sel = panel.querySelector('.cm-pp-brain-task');
     const projectName = _state.projectBrainProject || '';
-    if (!sel || !projectName) return;
+    // v3.3.3: sin proyecto en Settings, o con un proyecto sin estado, el boton crea el estado
+    const modoCrear = () => {
+      const btn = panel.querySelector('.cm-pp-brain-btn');
+      if (!btn) return;
+      btn.dataset.modo = 'crear';
+      btn.textContent = '✨ Create project state';
+      btn.title = 'Your AI organizes the memories of this project into a project state. You review it before saving.';
+      if (sel) sel.hidden = true;
+      if (casilla) casilla.hidden = true;
+    };
+    if (!sel) return;
+    if (!projectName) { modoCrear(); return; }
     try {
       const data = await api('GET', '/v1/project/' + encodeURIComponent(projectName) + '/state');
       const prios = ((data.state || {}).priorities || []).filter(p => (p.status || 'active') === 'active')
@@ -1265,7 +1294,10 @@
         o.textContent = 'Task ' + p.id + ' [' + (p.priority_score ?? '?') + ']: ' + (t.length > 60 ? t.slice(0, 59) + '…' : t);
         sel.appendChild(o);
       }
-    } catch (e) { /* sin estado o sin red: queda solo la vista general */ }
+    } catch (e) {
+      if (e.status === 404 && e.data && e.data.error === 'project state not found') modoCrear();
+      /* sin red: queda solo la vista general */
+    }
   }
 
   // ── v3.3.2: PIN opcional para aprobar datos sensibles ──
@@ -1386,6 +1418,492 @@
       btn.disabled = false;
       btn.textContent = orig;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PART 3 (v3.3.3): CREATE THE PROJECT STATE WITH THE USER'S OWN AI
+  // ═══════════════════════════════════════════════════════════════════
+  // La extension no tiene IA propia, pero el usuario tiene una abierta. Se le pasan las
+  // memorias del proyecto (descifradas aca, desde la lista, que no cobra) con una
+  // consigna; se lee el JSON de su respuesta, se valida y se muestra para revisar.
+  // Nada se guarda sin "Save state". El estado queda legible en el servidor y no se
+  // borra: se avisa antes de empezar (decision de Silvio, 27/10/2026).
+
+  const STATE_FEE_AIC = 0.05, STATE_FEE_PER_OP_AIC = 0.005;
+  const MAX_STATE_ITEMS = 40;
+  const MAX_MEM_CHARS_IN_PROMPT = 1800;   // cada memoria, dentro del tope MAX_INJECT_CHARS
+  const MIN_MEM_CHARS_IN_PROMPT = 400;    // por debajo de esto se dejan afuera las mas viejas
+  const ESPERA_RESPUESTA_MS = 15 * 60 * 1000;
+
+  // Los nueve tipos de la primera version, con los campos de la gramatica del servidor.
+  // set_vision no lleva evidencia en la gramatica: se le quita.
+  const STATE_OPS = {
+    set_vision:        { req: ['statement'], opt: [], evid: false, label: 'Vision', text: o => o.statement },
+    set_phase:         { req: ['value'], opt: [], evid: true, label: 'Phase', text: o => o.value },
+    set_focus:         { req: ['value'], opt: [], evid: true, label: 'Focus', text: o => o.value },
+    add_decision:      { req: ['title', 'statement'], opt: [], evid: true, label: 'Decision', text: o => o.title + ' — ' + o.statement },
+    add_milestone:     { req: ['title'], opt: ['status'], evid: true, label: 'Milestone', text: o => (o.status ? '(' + o.status + ') ' : '') + o.title },
+    add_risk:          { req: ['title'], opt: ['severity'], evid: true, label: 'Risk', text: o => (o.severity ? '(' + o.severity + ') ' : '') + o.title },
+    add_priority:      { req: ['title'], opt: ['priority_score'], evid: true, label: 'Priority', text: o => (o.priority_score != null ? '(' + o.priority_score + ') ' : '') + o.title },
+    add_open_question: { req: ['question'], opt: [], evid: true, label: 'Question', text: o => o.question },
+    add_constraint:    { req: ['statement'], opt: [], evid: true, label: 'Rule', text: o => o.statement },
+  };
+  const UNICOS = new Set(['set_vision', 'set_phase', 'set_focus']);
+  // Valores cerrados del servidor. Solo se corrige lo obvio; el resto se descarta.
+  const CERRADOS = {
+    severity: { low: 'low', med: 'med', high: 'high', medium: 'med', bajo: 'low', baja: 'low', medio: 'med', media: 'med', alto: 'high', alta: 'high' },
+    status: { planned: 'planned', in_progress: 'in_progress', 'in progress': 'in_progress', done: 'done' },
+  };
+
+  // ── Secretos (tambien para el boton Save) ──
+  // Patrones de alta confianza: claves de ChainMemory, bloques PEM, una clave privada en
+  // hex sin 0x (los hashes de transaccion llevan 0x y no cuentan) y una frase de
+  // recuperacion: 12 o mas palabras BIP39 seguidas, que en un texto normal no pasa.
+  let _wordset = null;
+  function buscarSecretos(texto) {
+    const s = String(texto || '');
+    const hallados = [];
+    if (/\b(aic|aicm|aicp)_[A-Za-z0-9]{20,}/.test(s)) hallados.push('a ChainMemory API key');
+    if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(s)) hallados.push('a private key block');
+    if (/(^|[^0-9a-fA-Fx])[0-9a-fA-F]{64}(?![0-9a-fA-F])/.test(s)) hallados.push('what looks like a private key (64 hex characters)');
+    if (!_wordset && typeof CM_WORDLIST !== 'undefined') _wordset = new Set(CM_WORDLIST);
+    if (_wordset) {
+      let racha = 0;
+      for (const w of s.toLowerCase().split(/[^a-z]+/)) {
+        if (!w) continue;
+        racha = _wordset.has(w) ? racha + 1 : 0;
+        if (racha >= 12) { hallados.push('what looks like recovery words (12 words)'); break; }
+      }
+    }
+    return hallados;
+  }
+
+  // Cuadro de dialogo con el estilo de la aprobacion de datos sensibles (3.3.2).
+  function abrirDialogo(html) {
+    const fondo = document.createElement('div');
+    fondo.className = 'cm-approve-backdrop';
+    fondo.innerHTML = `<div class="cm-approve cm-cs" role="dialog" aria-modal="true">${html}</div>`;
+    document.body.appendChild(fondo);
+    const alTeclado = (e) => { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } };
+    const cerrar = () => { document.removeEventListener('keydown', alTeclado, true); fondo.remove(); if (fondo._alCerrar) fondo._alCerrar(); };
+    document.addEventListener('keydown', alTeclado, true);
+    return { fondo, cerrar, $: (sel) => fondo.querySelector(sel) };
+  }
+
+  // Antes de guardar una memoria que parece tener un secreto. Resuelve true con "Save anyway".
+  function confirmarSecretos(hallados) {
+    return new Promise(resolve => {
+      const d = abrirDialogo(`
+        <h3>This answer seems to contain ${escapeHtml(hallados.join(', '))}</h3>
+        <p>Your memories are encrypted, but they are kept for good — they cannot be deleted — and you may inject them into other AIs later. If it is a real secret, save a version without it.</p>
+        <div class="cm-approve-buttons">
+          <button class="cm-approve-cancel">Cancel</button>
+          <button class="cm-approve-ok">Save anyway</button>
+        </div>`);
+      let ok = false;
+      d.fondo._alCerrar = () => resolve(ok);
+      d.$('.cm-approve-cancel').addEventListener('click', d.cerrar);
+      d.$('.cm-approve-ok').addEventListener('click', () => { ok = true; d.cerrar(); });
+      d.$('.cm-approve-cancel').focus();
+    });
+  }
+
+  // Memorias del proyecto, legibles: las selladas se abren aca con la boveda.
+  async function memoriasDelProyecto(proyecto) {
+    const params = new URLSearchParams({ include_plaintext: '1', limit: '50', project: proyecto.project_id });
+    const data = await api('GET', '/v1/memories/list?' + params);
+    const out = [];
+    let sinBoveda = 0;
+    for (const m of data.memories || []) {
+      let texto = m.summary || '';
+      if (m.scheme === 'sealed') {
+        if (!_state.blindClient || !m.content_blob) { sinBoveda++; continue; }
+        try { texto = await _state.blindClient.open(m.content_blob); } catch (e) { sinBoveda++; continue; }
+      }
+      texto = String(texto || '').trim();
+      if (texto && Number.isInteger(m.memory_number)) out.push({ n: m.memory_number, texto });
+    }
+    return { memorias: out, sinBoveda };
+  }
+
+  // El ejemplo del formato cita los numeros reales de la consigna (a, b, c), asi la IA no copia uno que no recibio.
+  function cabeceraConsigna(projectName, a, b, c) {
+    return [
+      `[ChainMemory · Create the project state: "${projectName}"]`,
+      '',
+      'Below are my saved memories for this project, each with its number. Organize them into a project state.',
+      '',
+      'Answer ONLY with one JSON code block, nothing before or after it, in exactly this form:',
+      '{"ops":[',
+      ' {"op":"set_vision","statement":"..."},',
+      ` {"op":"set_phase","value":"...","evidence_memory_ids":[${a}]},`,
+      ` {"op":"set_focus","value":"...","evidence_memory_ids":[${a},${b}]},`,
+      ` {"op":"add_decision","title":"...","statement":"...","evidence_memory_ids":[${b}]},`,
+      ` {"op":"add_milestone","title":"...","status":"planned","evidence_memory_ids":[${a}]},`,
+      ` {"op":"add_risk","title":"...","severity":"high","evidence_memory_ids":[${b}]},`,
+      ` {"op":"add_priority","title":"...","priority_score":80,"evidence_memory_ids":[${c}]},`,
+      ` {"op":"add_open_question","question":"...","evidence_memory_ids":[${c}]},`,
+      ` {"op":"add_constraint","statement":"...","evidence_memory_ids":[${a}]}`,
+      ']}',
+      '',
+      'Rules:',
+      '- Use only these 9 operation types. At most one set_vision, one set_phase and one set_focus.',
+      '- Every item except set_vision lists in evidence_memory_ids the memory numbers that support it. Use only the numbers below; the ones in the example are placeholders.',
+      '- severity is low, med or high. status is planned, in_progress or done. priority_score goes from 0 to 100, higher first.',
+      '- Include only what the memories say. Do not invent anything; leave out what you are not sure about.',
+      '- Never include passwords, API keys, private keys, recovery words, addresses or server details.',
+      `- At most ${MAX_STATE_ITEMS} items. Write the text in the same language as the memories.`,
+      '',
+      'Memories:',
+      ''
+    ].join('\n');
+  }
+
+  // La consigna: entran todas las memorias que caben con al menos MIN_MEM_CHARS_IN_PROMPT cada una
+  // (las mas recientes primero) y el tope se reparte entre ellas; las cortas le ceden lugar a las largas.
+  function armarConsigna(projectName, memorias) {
+    const mayor = memorias.reduce((x, m) => Math.max(x, m.n), 0);
+    const libre = MAX_INJECT_CHARS - cabeceraConsigna(projectName, mayor, mayor, mayor).length - 10;
+    const sobra = (n) => `[#${n}] `.length + 3;   // numero, salto doble y la elipsis si se acorta
+    const k = Math.min(memorias.length, Math.floor(libre / (MIN_MEM_CHARS_IN_PROMPT + sobra(mayor))));
+    const usadas = memorias.slice(0, k)           // la lista viene de la mas nueva a la mas vieja
+      .map(m => ({ n: m.n, t: m.texto.replace(/\s+\n/g, '\n') }))
+      .sort((x, y) => x.t.length - y.t.length);
+    let resto = libre, recortadas = 0;
+    usadas.forEach((u, i) => {
+      const cupo = Math.max(0, Math.min(MAX_MEM_CHARS_IN_PROMPT, Math.floor(resto / (usadas.length - i)) - sobra(u.n)));
+      if (u.t.length > cupo) { u.t = u.t.slice(0, cupo) + '…'; recortadas++; }
+      u.bloque = `[#${u.n}] ${u.t}\n\n`;
+      resto -= u.bloque.length;
+    });
+    usadas.sort((x, y) => x.n - y.n);
+    const numeros = usadas.map(u => u.n);
+    const [a, b = a, c = b] = numeros;
+    const cabecera = cabeceraConsigna(projectName, a, b, c);
+    const omitidas = memorias.slice(k).map(m => m.n).sort((x, y) => x - y);
+    return { text: cabecera + usadas.map(u => u.bloque).join('') + '---\n', numeros, recortadas, omitidas };
+  }
+
+  // El primer objeto JSON con "ops" de la respuesta, contando llaves fuera de las cadenas.
+  function extraerOps(texto) {
+    const probar = (s) => {
+      for (let i = s.indexOf('"ops"'); i !== -1; i = s.indexOf('"ops"', i + 5)) {
+        const ini = s.lastIndexOf('{', i);
+        if (ini === -1) continue;
+        let prof = 0, enCadena = false, esc = false;
+        for (let k = ini; k < s.length; k++) {
+          const c = s[k];
+          if (enCadena) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') enCadena = false; continue; }
+          if (c === '"') enCadena = true;
+          else if (c === '{') prof++;
+          else if (c === '}' && --prof === 0) {
+            try { const j = JSON.parse(s.slice(ini, k + 1)); if (j && Array.isArray(j.ops)) return j.ops; } catch (e) {}
+            break;
+          }
+        }
+      }
+      return null;
+    };
+    const s = String(texto || '');
+    return probar(s) || probar(s.replace(/[“”]/g, '"'));
+  }
+
+  // Valida cada operacion como el servidor y descarta lo que no entra, diciendo por que.
+  function validarOps(crudas, numerosDados) {
+    const dados = new Set(numerosDados);
+    const items = [], descartes = {};
+    const descartar = (motivo) => { descartes[motivo] = (descartes[motivo] || 0) + 1; };
+    const vistos = new Set();
+    for (const o of crudas) {
+      const def = o && typeof o === 'object' && STATE_OPS[o.op];
+      if (!def) { descartar('not one of the 9 types'); continue; }
+      if (UNICOS.has(o.op) && items.some(i => i.op.op === o.op)) { descartar('repeated'); continue; }
+      const limpio = { op: o.op };
+      let falla = null;
+      for (const f of def.req) {
+        const v = typeof o[f] === 'string' ? o[f].trim() : '';
+        if (!v) { falla = 'missing text'; break; }
+        limpio[f] = v;
+      }
+      if (!falla && def.opt.includes('severity') && o.severity != null) {
+        const v = CERRADOS.severity[String(o.severity).trim().toLowerCase()];
+        if (v) limpio.severity = v; else falla = 'value out of the list';
+      }
+      if (!falla && def.opt.includes('status') && o.status != null) {
+        const v = CERRADOS.status[String(o.status).trim().toLowerCase()];
+        if (v) limpio.status = v; else falla = 'value out of the list';
+      }
+      if (!falla && def.opt.includes('priority_score') && o.priority_score != null) {
+        const v = Number(o.priority_score);
+        if (Number.isFinite(v) && v >= 0 && v <= 100) limpio.priority_score = Math.round(v); else falla = 'value out of the list';
+      }
+      if (!falla && def.evid) {
+        const ids = Array.isArray(o.evidence_memory_ids) ? [...new Set(o.evidence_memory_ids.map(Number))] : [];
+        if (!ids.length) falla = 'no supporting memory';
+        else if (ids.some(n => !dados.has(n))) falla = 'cites a memory that was not given';
+        else limpio.evidence_memory_ids = ids.sort((a, b) => a - b);
+      }
+      if (!falla && buscarSecretos(Object.values(limpio).filter(v => typeof v === 'string').join('\n')).length) falla = 'looks like a secret';
+      const texto = falla ? '' : def.text(limpio);
+      if (!falla && vistos.has(o.op + '|' + texto)) falla = 'repeated';
+      if (!falla && items.length >= MAX_STATE_ITEMS) falla = 'over the limit of ' + MAX_STATE_ITEMS;
+      if (falla) { descartar(falla); continue; }
+      vistos.add(o.op + '|' + texto);
+      items.push({ op: limpio, label: def.label, texto });
+    }
+    return { items, descartes };
+  }
+
+  let _creacion = null;   // { projectName, consigna, numeros, antesEl, antesTexto, timer, barra }
+
+  function costoEstado(n) { return STATE_FEE_AIC + STATE_FEE_PER_OP_AIC * n; }
+
+  // Entrada: el boton del panel en modo "crear" (el proyecto no tiene estado todavia).
+  async function crearEstado(btn) {
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+    let proyectos;
+    try { proyectos = (await api('GET', '/v1/projects')).projects || []; }
+    catch (e) { toast('Could not load your projects: ' + mensajeError(e), 'error'); return; }
+    finally { btn.disabled = false; btn.textContent = orig; }
+    if (!proyectos.length) { toast('Create a project first (extension icon → Settings)', 'warn'); return; }
+    const configurado = _state.projectBrainProject || '';
+    const fijo = configurado && proyectos.find(p => p.name === configurado || p.project_id === configurado);
+
+    const d = abrirDialogo(`
+      <h3>Before you create the project state</h3>
+      ${fijo ? '' : `<label class="cm-cs-field">Project <select class="cm-cs-project"><option value="">Choose a project…</option>${proyectos.map((p, i) => `<option value="${i}">${escapeHtml(p.name)}</option>`).join('')}</select></label>`}
+      <ul class="cm-cs-notice">
+        <li>Your AI will read the memories of <b class="cm-cs-name">${fijo ? escapeHtml(configurado) : 'this project'}</b> (<span class="cm-cs-count">…</span>) and organize them into a summary: focus, decisions, risks, priorities and open questions.</li>
+        <li>Unlike your memories, <b>this summary is stored readable on ChainMemory's server</b>, so it can be checked and injected. Only its fingerprint goes on chain.</li>
+        <li><b>It cannot be deleted.</b> You can correct it later, but every version is kept.</li>
+        <li>You will review every line before anything is saved.</li>
+        <li>Reading your memories is free. Saving the state costs ${STATE_FEE_AIC} AIC plus ${STATE_FEE_PER_OP_AIC} per item: about 0.1–0.25 AIC.</li>
+      </ul>
+      <label class="cm-pp-check cm-cs-ok-wrap"><input type="checkbox" class="cm-cs-understand"> I understand</label>
+      <div class="cm-approve-error" role="alert"></div>
+      <div class="cm-approve-buttons">
+        <button class="cm-approve-cancel">Cancel</button>
+        <button class="cm-approve-ok" disabled>Continue</button>
+      </div>`);
+    let elegido = fijo || null, memorias = null, carga = 0;
+    const ok = d.$('.cm-approve-ok'), error = d.$('.cm-approve-error'), cuenta = d.$('.cm-cs-count');
+    const refrescar = () => { ok.disabled = !(elegido && memorias && memorias.length && d.$('.cm-cs-understand').checked); };
+    const cargar = async () => {
+      memorias = null; error.textContent = ''; refrescar();
+      if (!elegido) { cuenta.textContent = '…'; return; }
+      const mia = ++carga;
+      cuenta.textContent = 'counting…';
+      // "Create" no se usa sobre un estado que ya existe: le sumaria items repetidos
+      const nombre = fijo ? configurado : elegido.name;
+      try {
+        const st = await api('GET', '/v1/project/' + encodeURIComponent(nombre) + '/state');
+        if (mia !== carga) return;
+        cuenta.textContent = '—';
+        error.textContent = `"${nombre}" already has a project state (version ${st.version}). Set it in Settings → Project Brain to inject it.`;
+        return;
+      } catch (e) {
+        if (mia !== carga) return;
+        if (!(e.status === 404 && e.data && e.data.error === 'project state not found')) {
+          cuenta.textContent = '—';
+          error.textContent = 'Could not check the project state: ' + mensajeError(e);
+          return;
+        }
+      }
+      try {
+        const r = await memoriasDelProyecto(elegido);
+        if (mia !== carga) return;
+        memorias = r.memorias;
+        cuenta.textContent = memorias.length + (memorias.length === 1 ? ' memory' : ' memories');
+        if (!memorias.length) error.textContent = r.sinBoveda
+          ? 'Your memories are encrypted and the vault is not active in this browser. Activate it with your 12 words first.'
+          : 'This project has no memories yet. Save some answers to it first.';
+      } catch (e) { if (mia === carga) error.textContent = 'Could not load the memories: ' + mensajeError(e); }
+      refrescar();
+    };
+    const sel = d.$('.cm-cs-project');
+    if (sel) sel.addEventListener('change', () => {
+      elegido = sel.value === '' ? null : proyectos[Number(sel.value)];
+      d.$('.cm-cs-name').textContent = elegido ? elegido.name : 'this project';
+      cargar();
+    });
+    d.$('.cm-cs-understand').addEventListener('change', refrescar);
+    d.$('.cm-approve-cancel').addEventListener('click', d.cerrar);
+    ok.addEventListener('click', () => {
+      // el estado se crea con el nombre que usa "Inject project state": el de Settings si lo hay
+      const projectName = fijo ? configurado : elegido.name;
+      d.cerrar();
+      enviarConsigna(projectName, memorias);
+    });
+    cargar();
+  }
+
+  function enviarConsigna(projectName, memorias) {
+    const { text, numeros, recortadas, omitidas } = armarConsigna(projectName, memorias);
+    if (!numeros.length) { toast('Your memories are too long to fit in the chat box', 'warn'); return; }
+    cerrarCreacion();
+    const antesEl = getLastResponseEl();
+    _creacion = { projectName, consigna: text, numeros, antesEl, antesTexto: antesEl ? extractResponseText(antesEl) : '' };
+    const okInj = injectIntoInput(text);
+    if (!okInj) navigator.clipboard.writeText(text).catch(() => {});
+    closePanel();
+    const partes = [];
+    if (omitidas.length) {
+      const lista = omitidas.slice(0, 5).map(n => '#' + n).join(', ') + (omitidas.length > 5 ? '…' : '');
+      partes.push(`${numeros.length} of ${memorias.length} memories fit (oldest left out: ${lista})`);
+    }
+    if (recortadas) partes.push(`${recortadas} shortened`);
+    toast((okInj ? '✓ Instructions pasted' : 'Instructions copied: paste them in the chat') + (partes.length ? ' · ' + partes.join(' · ') : '') + ' · nothing was charged', 'success');
+    esperarRespuesta();
+  }
+
+  // Barra mientras la IA responde. La revision se abre sola cuando aparece un JSON valido
+  // que dejo de cambiar; el boton sirve si la deteccion no la abre.
+  function esperarRespuesta() {
+    const c = _creacion;
+    const barra = document.createElement('div');
+    barra.className = 'cm-cs-bar';
+    barra.innerHTML = `
+      <span>Send the message to your AI. When it finishes, ChainMemory opens the review.</span>
+      <button class="cm-cs-bar-review">Review the answer</button>
+      <button class="cm-cs-bar-again" title="Paste the instructions again">Ask again</button>
+      <button class="cm-cs-bar-cancel" title="Cancel">×</button>`;
+    document.body.appendChild(barra);
+    c.barra = barra;
+    barra.querySelector('.cm-cs-bar-cancel').addEventListener('click', () => { cerrarCreacion(); toast('Nothing was saved', 'info'); });
+    barra.querySelector('.cm-cs-bar-review').addEventListener('click', () => revisarRespuesta(true));
+    barra.querySelector('.cm-cs-bar-again').addEventListener('click', pedirDeNuevo);
+    const inicio = Date.now();
+    let previo = null;
+    c.timer = setInterval(() => {
+      if (_creacion !== c) return clearInterval(c.timer);
+      if (Date.now() - inicio > ESPERA_RESPUESTA_MS) return clearInterval(c.timer);
+      const t = textoNuevaRespuesta(c);
+      if (t && t === previo && extraerOps(t)) revisarRespuesta(false);
+      previo = t;
+    }, 2000);
+  }
+
+  function textoNuevaRespuesta(c) {
+    const el = getLastResponseEl();
+    if (!el || el.getAttribute('data-is-streaming') === 'true') return null;
+    const t = extractResponseText(el);
+    if (!t || t === c.antesTexto) return null;
+    return t;
+  }
+
+  function pedirDeNuevo() {
+    const c = _creacion;
+    if (!c) return;
+    const antesEl = getLastResponseEl();
+    c.antesEl = antesEl;
+    c.antesTexto = antesEl ? extractResponseText(antesEl) : '';
+    if (injectIntoInput(c.consigna)) toast('✓ Instructions pasted again · send the message', 'success');
+    else navigator.clipboard.writeText(c.consigna).then(() => toast('Instructions copied: paste them in the chat', 'success')).catch(() => {});
+  }
+
+  function cerrarCreacion() {
+    if (_creacion) { clearInterval(_creacion.timer); if (_creacion.barra) _creacion.barra.remove(); }
+    _creacion = null;
+  }
+
+  function revisarRespuesta(manual) {
+    const c = _creacion;
+    if (!c || c.revisando) return;
+    const t = textoNuevaRespuesta(c);
+    const crudas = t && extraerOps(t);
+    if (!crudas) {
+      if (manual) toast(t ? 'The answer has no valid state yet. Wait until it finishes, or click Ask again.' : 'No new answer yet. Send the message to your AI first.', 'warn');
+      return;
+    }
+    c.revisando = true;
+    clearInterval(c.timer);
+    if (c.barra) { c.barra.remove(); c.barra = null; }
+    abrirRevision(c, crudas);
+  }
+
+  async function abrirRevision(c, crudas) {
+    const { items, descartes } = validarOps(crudas, c.numeros);
+    const fuera = Object.entries(descartes).map(([m, n]) => `${n} ${m}`).join(' · ');
+    const orden = Object.keys(STATE_OPS);
+    items.sort((a, b) => orden.indexOf(a.op.op) - orden.indexOf(b.op.op));
+    const d = abrirDialogo(`
+      <h3>Review your project state — ${escapeHtml(c.projectName)}</h3>
+      <p>Untick anything you do not want. Nothing is saved until you click Save state.</p>
+      <div class="cm-cs-list">${items.length ? items.map((it, i) => `
+        <label class="cm-cs-row"><input type="checkbox" data-i="${i}" checked>
+          <span class="cm-cs-label">${escapeHtml(it.label)}</span>
+          <span class="cm-cs-text">${escapeHtml(it.texto)}</span>
+          <span class="cm-cs-ev">${(it.op.evidence_memory_ids || []).map(n => '#' + n).join(' ')}</span>
+        </label>`).join('') : '<div class="cm-pp-empty">Your AI did not return any valid item. Click Ask again.</div>'}
+      </div>
+      ${fuera ? `<p class="cm-cs-out">Left out: ${escapeHtml(fuera)}.</p>` : ''}
+      <div class="cm-cs-total"></div>
+      <div class="cm-approve-error" role="alert"></div>
+      <div class="cm-approve-buttons">
+        <button class="cm-approve-cancel">Cancel</button>
+        <button class="cm-cs-again">Ask again</button>
+        <button class="cm-approve-ok">Save state</button>
+      </div>`);
+    const ok = d.$('.cm-approve-ok'), error = d.$('.cm-approve-error'), total = d.$('.cm-cs-total');
+    let saldo = null;
+    api('GET', '/v1/inject/balance').then(b => { saldo = parseFloat(b.balance_aic); refrescar(); }).catch(() => {});
+    const marcados = () => Array.from(d.fondo.querySelectorAll('.cm-cs-row input:checked')).map(x => items[Number(x.dataset.i)].op);
+    const refrescar = () => {
+      const n = marcados().length, costo = costoEstado(n);
+      total.textContent = `${n} ${n === 1 ? 'item' : 'items'} · Cost: ${fmtAIC(costo)} AIC` + (saldo != null ? ` · Balance: ${saldo.toFixed(4)} AIC` : '');
+      const corto = saldo != null && saldo < costo;
+      ok.disabled = !n || corto;
+      if (corto) error.textContent = 'Not enough AIC to save this state.';
+      else if (/^Not enough AIC/.test(error.textContent)) error.textContent = '';
+    };
+    d.fondo.querySelectorAll('.cm-cs-row input').forEach(x => x.addEventListener('change', refrescar));
+    refrescar();
+    let guardado = false;
+    d.fondo._alCerrar = () => { if (!guardado && _creacion === c) { cerrarCreacion(); toast('Nothing was saved', 'info'); } };
+    d.$('.cm-approve-cancel').addEventListener('click', d.cerrar);
+    d.$('.cm-cs-again').addEventListener('click', () => {
+      guardado = true;            // cerrar este cuadro no cancela: se espera la nueva respuesta
+      d.cerrar();
+      c.revisando = false;
+      pedirDeNuevo();
+      if (c.barra) c.barra.remove();
+      esperarRespuesta();
+    });
+    ok.addEventListener('click', async () => {
+      const ops = marcados();
+      if (!ops.length) return;
+      ok.disabled = true;
+      ok.textContent = 'Saving…';
+      error.textContent = '';
+      try {
+        const r = await api('POST', '/v1/project/' + encodeURIComponent(c.projectName) + '/state/ops', {
+          ops,
+          generated_by: 'chainmemory-extension ' + chrome.runtime.getManifest().version,
+          consolidated_until_event: Math.max(...c.numeros)
+        });
+        guardado = true;
+        d.cerrar();
+        cerrarCreacion();
+        const rechazadas = Array.isArray(r.rejected) ? r.rejected.length : 0;
+        if (rechazadas) console.warn('[ChainMemory] operaciones rechazadas por el servidor:', r.rejected);
+        if (!r.version || !r.applied_count) { toast('No changes were saved: the server did not accept any item', 'warn'); return; }
+        if (!_state.projectBrainProject) {
+          _state.projectBrainProject = c.projectName;
+          chrome.storage.sync.set({ projectBrainProject: c.projectName });
+        }
+        toast(`✓ Project state created — version ${r.version} · ${r.applied_count} items` + (rechazadas ? ` · ${rechazadas} rejected` : '') + ' · it is anchored on chain in about 10 minutes', 'success');
+      } catch (e) {
+        ok.textContent = 'Save state';
+        refrescar();
+        if (e.status === 402 || (e.data && e.data.error === 'insufficient_aic')) error.textContent = 'Not enough AIC to save this state. Nothing was charged.';
+        else if (e.status === 422) error.textContent = 'A memory is not anchored on chain yet. Try again in a minute. Nothing was charged.';
+        else if (e.status === 409) error.textContent = 'The project state changed meanwhile. Close this and open the panel again.';
+        else error.textContent = 'Save failed: ' + mensajeError(e);
+      }
+    });
+    ok.focus();
   }
 
   // ═══════════════════════════════════════════════════════════════════
