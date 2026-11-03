@@ -147,7 +147,6 @@ chainmemory-extension/
 
 - [chainmemory-mcp](https://www.npmjs.com/package/chainmemory-mcp) — MCP server for Claude Desktop, Cursor, and other MCP-compatible AIs.
 - [chainmemory-sdk](https://www.npmjs.com/package/chainmemory-sdk) — JavaScript SDK.
-- [chainmemory](https://pypi.org/project/chainmemory/) — Python SDK.
 
 ## Privacy
 
